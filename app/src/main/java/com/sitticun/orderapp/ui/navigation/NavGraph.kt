@@ -23,6 +23,7 @@ import com.sitticun.orderapp.ui.screens.counter.ImageCounterScreen
 import com.sitticun.orderapp.ui.screens.customers.CustomersScreen
 import com.sitticun.orderapp.ui.screens.history.OrderHistoryScreen
 import com.sitticun.orderapp.ui.screens.pos.PosScreen
+import com.sitticun.orderapp.ui.screens.stock.StockScreen
 import com.sitticun.orderapp.ui.theme.*
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {

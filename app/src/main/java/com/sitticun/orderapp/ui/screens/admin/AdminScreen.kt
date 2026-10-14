@@ -82,13 +82,7 @@ fun AdminScreen(
                     TabRow(
                         selectedTabIndex = state.selectedTab,
                         containerColor = CardWhite,
-                        contentColor = PastelMint,
-                        indicator = { tabPositions ->
-                            TabRowDefaults.SecondaryIndicator(
-                                modifier = Modifier.tabIndicatorOffset(tabPositions[state.selectedTab]),
-                                color = PastelMint
-                            )
-                        }
+                        contentColor = PastelMint
                     ) {
                         tabs.forEachIndexed { index, (title, icon) ->
                             Tab(
