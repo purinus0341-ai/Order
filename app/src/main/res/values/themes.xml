@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.OrderApp" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#FDFBF7</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FDFBF7</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">#FDFBF7</item>
+    </style>
+</resources>

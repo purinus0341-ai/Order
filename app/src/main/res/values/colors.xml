@@ -1,0 +1,13 @@
+<resources>
+    <color name="cream_bg">#FDFBF7</color>
+    <color name="card_white">#FFFFFF</color>
+    <color name="mint_primary">#5B8A72</color>
+    <color name="peach_secondary">#E07A5F</color>
+    <color name="lavender_tertiary">#6B7FD7</color>
+    <color name="text_primary">#1F2421</color>
+    <color name="text_secondary">#58635B</color>
+    <color name="divider_border">#E5E0D8</color>
+    <color name="status_green">#4E8752</color>
+    <color name="status_red">#D9534F</color>
+    <color name="status_yellow">#E67E22</color>
+</resources>

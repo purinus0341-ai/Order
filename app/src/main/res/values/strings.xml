@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">OrderApp POS</string>
+    <string name="pos_title">จุดขายสินค้า (POS)</string>
+    <string name="cart_title">ตะกร้าสินค้า</string>
+    <string name="stock_title">จัดการสต็อก</string>
+    <string name="customers_title">สมาชิกลูกค้า</string>
+    <string name="history_title">ประวัติการขาย</string>
+    <string name="counter_title">นับสต็อกจากรูปภาพ</string>
+    <string name="admin_title">ผู้ดูแลและซิงค์</string>
+</resources>
