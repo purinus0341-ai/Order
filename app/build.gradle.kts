@@ -21,12 +21,12 @@ android {
             useSupportLibrary = true
         }
 
-        val supabaseUrl: String = (project.findProperty("SUPABASE_URL") as? String)
-            ?: System.getenv("SUPABASE_URL")
+        val supabaseUrl: String = (project.findProperty("SUPABASE_URL") as? String)?.takeIf { it.isNotBlank() }
+            ?: System.getenv("SUPABASE_URL")?.takeIf { it.isNotBlank() }
             ?: "https://your-project.supabase.co"
 
-        val supabaseAnonKey: String = (project.findProperty("SUPABASE_ANON_KEY") as? String)
-            ?: System.getenv("SUPABASE_ANON_KEY")
+        val supabaseAnonKey: String = (project.findProperty("SUPABASE_ANON_KEY") as? String)?.takeIf { it.isNotBlank() }
+            ?: System.getenv("SUPABASE_ANON_KEY")?.takeIf { it.isNotBlank() }
             ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
