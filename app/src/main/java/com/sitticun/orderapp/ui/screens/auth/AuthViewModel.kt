@@ -26,7 +26,7 @@ class AuthViewModel(
 
     private val _uiState = MutableStateFlow(
         AuthUiState(
-            email = authRepository.rememberedEmail,
+            email = authRepository.rememberedEmail.orEmpty(),
             userProfile = OrderApplication.instance.preferenceManager.userProfile
         )
     )
