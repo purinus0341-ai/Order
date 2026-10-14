@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.sitticun.orderapp.OrderApplication
+import com.sitticun.orderapp.data.model.CountMarker
+import com.sitticun.orderapp.data.model.CountSession
 import com.sitticun.orderapp.data.model.MarkerDot
 import com.sitticun.orderapp.data.model.Product
 import com.sitticun.orderapp.data.repository.ProductRepository
@@ -18,7 +20,7 @@ import java.util.UUID
 data class ImageCounterUiState(
     val selectedImageUri: Uri? = null,
     val markers: List<MarkerDot> = emptyList(),
-    val selectedColorHex: String = "#5B8A72", // Default Pastel Mint
+    val selectedColorHex: String = "#5B8A72",
     val selectedProduct: Product? = null,
     val showSaveDialog: Boolean = false,
     val isSaving: Boolean = false,
@@ -39,6 +41,15 @@ class ImageCounterViewModel(
 
     val products = productRepository.products
 
+    init {
+        viewModelScope.launch {
+            val list = productRepository.loadProducts()
+            if (_uiState.value.selectedProduct == null) {
+                _uiState.value = _uiState.value.copy(selectedProduct = list.firstOrNull())
+            }
+        }
+    }
+
     fun onImageSelected(uri: Uri?) {
         _uiState.value = _uiState.value.copy(selectedImageUri = uri, markers = emptyList())
     }
@@ -47,14 +58,19 @@ class ImageCounterViewModel(
         _uiState.value = _uiState.value.copy(selectedColorHex = colorHex)
     }
 
-    fun addMarker(x: Float, y: Float) {
+    fun selectTargetProduct(product: Product) {
+        _uiState.value = _uiState.value.copy(selectedProduct = product)
+    }
+
+    fun addMarker(xNormalized: Float, yNormalized: Float) {
         val current = _uiState.value.markers.toMutableList()
         val nextSeq = current.size + 1
         current.add(
             MarkerDot(
-                id = UUID.randomUUID().toString(),
-                x = x,
-                y = y,
+                id = "CM-" + UUID.randomUUID().toString(),
+                productId = _uiState.value.selectedProduct?.id,
+                xNormalized = xNormalized.coerceIn(0f, 1f),
+                yNormalized = yNormalized.coerceIn(0f, 1f),
                 seq = nextSeq,
                 colorHex = _uiState.value.selectedColorHex
             )
@@ -75,8 +91,7 @@ class ImageCounterViewModel(
 
     fun openSaveDialog() {
         if (_uiState.value.markers.isNotEmpty()) {
-            val defaultProd = products.value.firstOrNull()
-            _uiState.value = _uiState.value.copy(showSaveDialog = true, selectedProduct = defaultProd)
+            _uiState.value = _uiState.value.copy(showSaveDialog = true)
         }
     }
 
@@ -84,27 +99,39 @@ class ImageCounterViewModel(
         _uiState.value = _uiState.value.copy(showSaveDialog = false)
     }
 
-    fun selectTargetProduct(product: Product) {
-        _uiState.value = _uiState.value.copy(selectedProduct = product)
-    }
+    fun saveSession(note: String = "") {
+        val state = _uiState.value
+        val sessionId = "CNT-" + UUID.randomUUID().toString()
 
-    fun saveCountToStock(isOverride: Boolean) {
-        val prod = _uiState.value.selectedProduct ?: return
-        val count = _uiState.value.totalCount
+        val countMarkers = state.markers.map { m ->
+            CountMarker(
+                id = m.id,
+                sessionId = sessionId,
+                productId = m.productId,
+                xNormalized = m.xNormalized.toDouble(),
+                yNormalized = m.yNormalized.toDouble()
+            )
+        }
+
+        val session = CountSession(
+            id = sessionId,
+            note = note.trim().ifBlank { null },
+            markers = countMarkers
+        )
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, errorMessage = null)
-            val result = stockRepository.saveImageCount(prod.id, count, isOverride)
+            val result = stockRepository.saveCountSession(session)
             _uiState.value = _uiState.value.copy(isSaving = false)
 
             if (result.isSuccess) {
                 _uiState.value = _uiState.value.copy(
                     showSaveDialog = false,
-                    message = "บันทึกยอดนับ $count ชิ้น เข้าสต็อก '${prod.name}' เรียบร้อยแล้ว"
+                    message = "บันทึกข้อมูลการนับ ${state.totalCount} จุด สำเร็จ (Session ID: $sessionId)"
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = result.exceptionOrNull()?.message ?: "บันทึกสต็อกไม่สำเร็จ"
+                    errorMessage = result.exceptionOrNull()?.message ?: "บันทึกไม่สำเร็จ"
                 )
             }
         }

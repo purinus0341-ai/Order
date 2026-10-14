@@ -3,8 +3,6 @@ package com.sitticun.orderapp.ui.screens.pos
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,7 +15,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sitticun.orderapp.OrderApplication
 import com.sitticun.orderapp.ui.components.OfflineBanner
@@ -40,22 +37,14 @@ fun PosScreen(
     val isOnlineFlow by OrderApplication.instance.networkMonitor.isOnlineFlow.collectAsState(initial = true)
 
     val pendingCount = remember(outboxItems) { outboxItems.count { it.status == "PENDING" || it.status == "FAILED" } }
-
     var isMobileCartOpen by remember { mutableStateOf(false) }
 
-    // Categories list
-    val categories = remember(products) {
-        listOf("ทั้งหมด") + products.map { it.category }.distinct()
-    }
-
-    val filteredProducts = remember(products, state.searchQuery, state.selectedCategory) {
+    val filteredProducts = remember(products, state.searchQuery) {
         products.filter { p ->
-            val matchCategory = state.selectedCategory == "ทั้งหมด" || p.category == state.selectedCategory
             val matchQuery = state.searchQuery.isBlank() ||
                     p.name.contains(state.searchQuery, ignoreCase = true) ||
-                    p.barcode.contains(state.searchQuery, ignoreCase = true) ||
-                    p.sku.contains(state.searchQuery, ignoreCase = true)
-            matchCategory && matchQuery && p.isActive
+                    (p.tag != null && p.tag.contains(state.searchQuery, ignoreCase = true))
+            matchQuery && p.isActive
         }
     }
 
@@ -65,24 +54,17 @@ fun PosScreen(
             customers = customers,
             selectedCustomer = state.selectedCustomer,
             onSelectCustomer = { viewModel.selectCustomer(it) },
+            onCreateCustomer = { viewModel.createCustomer(it) },
             onDismiss = { viewModel.toggleCustomerPicker(false) }
-        )
-    }
-
-    if (state.showFreeItemsEditor) {
-        FreeItemsEditorDialog(
-            cartItems = state.cartItems,
-            onUpdateFreeQty = { pid, delta -> viewModel.updateItemFreeQty(pid, delta) },
-            onDismiss = { viewModel.toggleFreeItemsEditor(false) }
         )
     }
 
     if (state.showPointsEditor) {
         PointsEditorDialog(
             customer = state.selectedCustomer,
-            currentRedeemedPoints = state.redeemedPoints,
-            subtotal = state.subtotal,
-            onConfirmPoints = { points -> viewModel.setRedeemedPoints(points) },
+            cartItems = state.cartItems,
+            pointBalances = state.customerPointBalances,
+            onUpdatePointsAndFree = { pid, points, free -> viewModel.updatePointsAndFree(pid, points, free) },
             onDismiss = { viewModel.togglePointsEditor(false) }
         )
     }
@@ -96,38 +78,42 @@ fun PosScreen(
         )
     }
 
-    // Payment Dialog
-    if (state.showPaymentDialog) {
-        PaymentMethodDialog(
-            totalAmount = state.totalPayable,
-            selectedMethod = state.selectedPaymentMethod,
-            isProcessing = state.isCheckingOut,
-            onSelectMethod = { viewModel.setPaymentMethod(it) },
-            onConfirm = { viewModel.confirmSale() },
-            onDismiss = { viewModel.dismissPaymentDialog() }
+    // Error Alert Dialog
+    if (state.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissErrorMessage() },
+            title = { Text("ข้อผิดพลาด", fontWeight = FontWeight.Bold, color = StatusDanger) },
+            text = { Text(state.errorMessage ?: "") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.dismissErrorMessage() },
+                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                ) {
+                    Text("ตกลง", color = Color.White)
+                }
+            }
         )
     }
 
     // Checkout Success Dialog
-    if (state.checkoutSuccessOrder != null) {
-        val order = state.checkoutSuccessOrder!!
+    if (state.checkoutSuccess != null) {
+        val result = state.checkoutSuccess!!
         AlertDialog(
             onDismissRequest = { viewModel.dismissSuccessDialog() },
             icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = StatusSuccess, modifier = Modifier.size(40.dp)) },
-            title = { Text("ชำระเงินสำเร็จ!", fontWeight = FontWeight.Bold, color = TextPrimary) },
+            title = { Text("บันทึกการขายสำเร็จ!", fontWeight = FontWeight.Bold, color = TextPrimary) },
             text = {
                 Column {
-                    Text(text = "เลขที่บิล: ${order.orderNumber ?: order.orderId ?: "-"}", fontWeight = FontWeight.SemiBold)
+                    Text(text = "รหัสบิล: ${result.orderId}", fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = order.message, fontSize = 13.sp, color = TextSecondary)
-                    if (order.updatedCustomerPoints != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "แต้มสะสมคงเหลือล่าสุด: ${Formatters.formatPoints(order.updatedCustomerPoints)}",
-                            fontSize = 13.sp,
-                            color = PastelMintDark,
-                            fontWeight = FontWeight.Bold
-                        )
+                    Text(text = "ยอดรวม: ${Formatters.formatCurrency(result.total)} (คิดเงิน ${result.totalQty} ชิ้น)", fontSize = 13.sp, color = TextSecondary)
+                    if (result.pointBalances.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = "ยอดแต้มสะสมล่าสุด:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PastelMintDark)
+                        for ((pid, bal) in result.pointBalances) {
+                            val pName = products.find { it.id.toString() == pid }?.name ?: "สินค้า $pid"
+                            Text(text = "• $pName: $bal แต้ม", fontSize = 12.sp, color = TextSecondary)
+                        }
                     }
                 }
             },
@@ -136,7 +122,7 @@ fun PosScreen(
                     onClick = { viewModel.dismissSuccessDialog() },
                     colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
                 ) {
-                    Text("ตกลง / พิมพ์ใบเสร็จ", color = Color.White)
+                    Text("ตกลง", color = Color.White)
                 }
             },
             containerColor = CardWhite,
@@ -153,7 +139,6 @@ fun PosScreen(
         val isTablet = maxWidth >= 760.dp
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // Offline Sync Banner
             OfflineBanner(
                 isOnline = isOnlineFlow,
                 pendingSyncCount = pendingCount,
@@ -176,11 +161,10 @@ fun PosScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Search bar
                     OutlinedTextField(
                         value = state.searchQuery,
                         onValueChange = { viewModel.onSearchQueryChange(it) },
-                        placeholder = { Text("ค้นหาสินค้า, บาร์โค้ด, SKU...", fontSize = 13.sp) },
+                        placeholder = { Text("ค้นหาสินค้า...", fontSize = 13.sp) },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = PastelMint) },
                         trailingIcon = {
                             if (state.searchQuery.isNotBlank()) {
@@ -198,7 +182,6 @@ fun PosScreen(
                         )
                     )
 
-                    // Held bills badge button
                     BadgedBox(
                         badge = {
                             if (heldBills.isNotEmpty()) {
@@ -215,47 +198,16 @@ fun PosScreen(
                         ) {
                             Icon(Icons.Default.PauseCircle, contentDescription = null, tint = PastelLavender, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("บิลที่พักไว้", fontSize = 12.sp, color = TextPrimary)
+                            Text("บิลพัก", fontSize = 12.sp, color = TextPrimary)
                         }
                     }
                 }
             }
 
-            // Categories horizontal tabs
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(categories) { category ->
-                    val isSelected = state.selectedCategory == category
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { viewModel.onCategorySelect(category) },
-                        label = { Text(category, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = PastelMint,
-                            selectedLabelColor = Color.White,
-                            containerColor = CardWhite,
-                            labelColor = TextPrimary
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = isSelected,
-                            borderColor = if (isSelected) PastelMint else BorderLight
-                        ),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                }
-            }
-
-            // Products & Cart Layout
+            // Products & Cart
             if (isTablet) {
-                // Wide Tablet 2-column view
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    Box(modifier = Modifier.weight(0.65f)) {
+                    Box(modifier = Modifier.weight(0.62f)) {
                         ProductGrid(
                             products = filteredProducts,
                             onProductClick = { viewModel.addToCart(it) }
@@ -264,32 +216,28 @@ fun PosScreen(
 
                     Box(
                         modifier = Modifier
-                            .weight(0.35f)
+                            .weight(0.38f)
                             .fillMaxHeight()
                     ) {
                         CartSheet(
                             cartItems = state.cartItems,
                             customer = state.selectedCustomer,
-                            redeemedPoints = state.redeemedPoints,
+                            pointBalances = state.customerPointBalances,
                             subtotal = state.subtotal,
-                            discountAmount = state.discountAmount,
                             totalPayable = state.totalPayable,
-                            earnedPoints = state.earnedPoints,
                             totalStockDeduction = state.totalStockDeduction,
                             onUpdatePaidQty = { pid, delta -> viewModel.updateItemPaidQty(pid, delta) },
                             onUpdateFreeQty = { pid, delta -> viewModel.updateItemFreeQty(pid, delta) },
                             onRemoveItem = { pid -> viewModel.removeItem(pid) },
                             onOpenCustomerPicker = { viewModel.toggleCustomerPicker(true) },
-                            onOpenFreeItemsEditor = { viewModel.toggleFreeItemsEditor(true) },
                             onOpenPointsEditor = { viewModel.togglePointsEditor(true) },
                             onHoldBill = { viewModel.holdBill() },
                             onClearCart = { viewModel.clearCart() },
-                            onCheckout = { viewModel.openPaymentDialog() }
+                            onCheckout = { viewModel.confirmSale() }
                         )
                     }
                 }
             } else {
-                // Phone view: Products on top, bottom checkout bar
                 Box(modifier = Modifier.weight(1f)) {
                     ProductGrid(
                         products = filteredProducts,
@@ -297,7 +245,7 @@ fun PosScreen(
                     )
                 }
 
-                // Mobile Bottom Cart Strip
+                // Mobile Bottom Strip
                 Surface(
                     color = CardWhite,
                     shadowElevation = 8.dp,
@@ -331,9 +279,9 @@ fun PosScreen(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = if (state.selectedCustomer != null) "ลูกค้า: ${state.selectedCustomer!!.name}" else "แตะเพื่อดูรายละเอียดบิล",
+                                    text = if (state.selectedCustomer != null) "ลูกค้า: ${state.selectedCustomer!!.name}" else "แตะเพื่อระบุลูกค้า & ดูบิล",
                                     fontSize = 11.sp,
-                                    color = TextSecondary
+                                    color = if (state.selectedCustomer != null) TextSecondary else PastelPeachDark
                                 )
                             }
                         }
@@ -348,7 +296,6 @@ fun PosScreen(
                     }
                 }
 
-                // Mobile Modal Bottom Sheet
                 if (isMobileCartOpen) {
                     ModalBottomSheet(
                         onDismissRequest = { isMobileCartOpen = false },
@@ -358,17 +305,14 @@ fun PosScreen(
                         CartSheet(
                             cartItems = state.cartItems,
                             customer = state.selectedCustomer,
-                            redeemedPoints = state.redeemedPoints,
+                            pointBalances = state.customerPointBalances,
                             subtotal = state.subtotal,
-                            discountAmount = state.discountAmount,
                             totalPayable = state.totalPayable,
-                            earnedPoints = state.earnedPoints,
                             totalStockDeduction = state.totalStockDeduction,
                             onUpdatePaidQty = { pid, delta -> viewModel.updateItemPaidQty(pid, delta) },
                             onUpdateFreeQty = { pid, delta -> viewModel.updateItemFreeQty(pid, delta) },
                             onRemoveItem = { pid -> viewModel.removeItem(pid) },
                             onOpenCustomerPicker = { viewModel.toggleCustomerPicker(true) },
-                            onOpenFreeItemsEditor = { viewModel.toggleFreeItemsEditor(true) },
                             onOpenPointsEditor = { viewModel.togglePointsEditor(true) },
                             onHoldBill = {
                                 viewModel.holdBill()
@@ -380,113 +324,10 @@ fun PosScreen(
                             },
                             onCheckout = {
                                 isMobileCartOpen = false
-                                viewModel.openPaymentDialog()
+                                viewModel.confirmSale()
                             },
                             modifier = Modifier.fillMaxHeight(0.85f)
                         )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PaymentMethodDialog(
-    totalAmount: Double,
-    selectedMethod: String,
-    isProcessing: Boolean,
-    onSelectMethod: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = CardWhite),
-            modifier = Modifier.fillMaxWidth().padding(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = "ยืนยันการชำระเงิน",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "ยอดที่ต้องชำระ: ${Formatters.formatCurrency(totalAmount)}",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PastelPeach
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(text = "เลือกช่องทางการชำระ:", fontSize = 13.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val methods = listOf(
-                    Triple("CASH", "เงินสด (Cash)", Icons.Default.Payments),
-                    Triple("QR", "สแกน QR / พร้อมเพย์", Icons.Default.QrCode),
-                    Triple("TRANSFER", "โอนเงินผ่านธนาคาร", Icons.Default.AccountBalance)
-                )
-
-                methods.forEach { (code, title, icon) ->
-                    val isSelected = selectedMethod == code
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectMethod(code) }
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) PastelMintLight else SurfaceVariantColor,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, PastelMint) else null
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(icon, contentDescription = null, tint = if (isSelected) PastelMintDark else TextSecondary)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = title,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = TextPrimary
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("ยกเลิก")
-                    }
-
-                    Button(
-                        onClick = onConfirm,
-                        enabled = !isProcessing,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = PastelMint,
-                            contentColor = Color.White
-                        )
-                    ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("เสร็จสิ้นการขาย", fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
             }

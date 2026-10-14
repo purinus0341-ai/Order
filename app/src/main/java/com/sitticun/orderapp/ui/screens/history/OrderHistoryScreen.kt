@@ -1,6 +1,5 @@
 package com.sitticun.orderapp.ui.screens.history
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.sitticun.orderapp.data.model.OrderRecord
+import com.sitticun.orderapp.data.model.OrderSummary
 import com.sitticun.orderapp.ui.components.OrderStatusBadge
 import com.sitticun.orderapp.ui.theme.*
 import com.sitticun.orderapp.util.Formatters
@@ -30,17 +29,18 @@ fun OrderHistoryScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val orders by viewModel.orders.collectAsState()
+    val isAdmin = viewModel.isAdmin
 
     val filteredOrders = remember(orders, state.searchQuery, state.selectedStatus) {
         orders.filter { ord ->
             val matchStatus = when (state.selectedStatus) {
-                "สำเร็จ" -> ord.status.equals("COMPLETED", ignoreCase = true)
-                "ยกเลิกแล้ว" -> ord.status.equals("VOIDED", ignoreCase = true)
+                "สำเร็จ" -> !ord.isVoided
+                "ยกเลิกแล้ว" -> ord.isVoided
                 else -> true
             }
             val matchQuery = state.searchQuery.isBlank() ||
-                    ord.orderNumber.contains(state.searchQuery, ignoreCase = true) ||
-                    (ord.customerName?.contains(state.searchQuery, ignoreCase = true) == true)
+                    ord.id.contains(state.searchQuery, ignoreCase = true) ||
+                    ord.customerName.contains(state.searchQuery, ignoreCase = true)
             matchStatus && matchQuery
         }
     }
@@ -49,7 +49,7 @@ fun OrderHistoryScreen(
         VoidOrderDialog(
             order = state.selectedOrder!!,
             isVoiding = state.isVoiding,
-            onConfirmVoid = { reason -> viewModel.voidOrder(reason) },
+            onConfirmVoid = { viewModel.voidOrder() },
             onDismiss = { viewModel.dismissVoidDialog() }
         )
     }
@@ -61,21 +61,39 @@ fun OrderHistoryScreen(
             icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = StatusSuccess) },
             title = { Text("ยกเลิกบิลสำเร็จ", fontWeight = FontWeight.Bold) },
             text = {
-                Column {
-                    Text(text = resp.message)
-                    if (resp.restoredStockItems > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "คืนสต็อกสินค้า: ${resp.restoredStockItems} ชิ้น", fontWeight = FontWeight.SemiBold)
-                    }
-                    if (resp.restoredCustomerPoints > 0) {
-                        Text(text = "คืนแต้มสะสมให้ลูกค้า: ${resp.restoredCustomerPoints} แต้ม", fontWeight = FontWeight.SemiBold)
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(text = "รหัสบิล: ${resp.orderId}")
+                    Text(text = "สถานะ: ${resp.status}")
+                    Text(
+                        text = "ระบบได้ทำการคืนแต้มสะสมและคืนสต็อกสินค้าอัตโนมัติแล้ว",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = { viewModel.dismissSuccessDialog() },
                     colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                ) {
+                    Text("ตกลง", color = Color.White)
+                }
+            },
+            containerColor = CardWhite,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (state.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearErrorMessage() },
+            icon = { Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = StatusDanger) },
+            title = { Text("เกิดข้อผิดพลาด", fontWeight = FontWeight.Bold) },
+            text = { Text(state.errorMessage ?: "") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.clearErrorMessage() },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusDanger)
                 ) {
                     Text("ตกลง", color = Color.White)
                 }
@@ -150,6 +168,7 @@ fun OrderHistoryScreen(
                     items(filteredOrders, key = { it.id }) { order ->
                         OrderCardItem(
                             order = order,
+                            canVoid = isAdmin && !order.isVoided,
                             onClick = { viewModel.selectOrder(order) },
                             onVoid = { viewModel.openVoidDialog(order) }
                         )
@@ -166,7 +185,7 @@ fun OrderHistoryScreen(
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = CardWhite),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 580.dp).padding(12.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(12.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     // Header
@@ -175,36 +194,55 @@ fun OrderHistoryScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(text = ord.orderNumber, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text(text = Formatters.formatIsoDateTime(ord.createdAt), fontSize = 12.sp, color = TextSecondary)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "บิล #${ord.id.take(8)}",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = Formatters.formatIsoDateTime(ord.createdAt),
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
                         }
-                        OrderStatusBadge(status = ord.status)
+                        OrderStatusBadge(status = if (ord.isVoided) "VOIDED" else "COMPLETED")
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    Divider(color = BorderLight, thickness = 0.8.dp)
+                    HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Text(text = "ลูกค้า: ${ord.customerName ?: "ทั่วไป"} • ช่องทาง: ${ord.paymentMethod}", fontSize = 12.sp, color = TextSecondary)
-                    if (!ord.deviceId.isNullOrBlank()) {
-                        Text(text = "เครื่องบันทึก: ${ord.deviceId}", fontSize = 11.sp, color = TextMuted)
+                    Text(
+                        text = "ลูกค้า: ${ord.customerName.ifBlank { "ไม่ระบุ" }}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary
+                    )
+                    if (!ord.createdBy.isNullOrBlank()) {
+                        Text(text = "ผู้บันทึก: ${ord.createdBy}", fontSize = 11.sp, color = TextMuted)
                     }
 
-                    if (ord.status == "VOIDED") {
+                    if (ord.isVoided) {
                         Spacer(modifier = Modifier.height(6.dp))
-                        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFFFEBEE), modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(text = "เหตุผลที่ยกเลิก: ${ord.voidReason ?: "-"}", fontSize = 12.sp, color = StatusDanger, fontWeight = FontWeight.SemiBold)
-                                if (!ord.voidedAt.isNullOrBlank()) {
-                                    Text(text = "ยกเลิกเมื่อ: ${Formatters.formatIsoDateTime(ord.voidedAt)}", fontSize = 11.sp, color = StatusDanger)
-                                }
-                            }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFEBEE),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "บิลนี้ถูกยกเลิกแล้ว (Voided) และปรับคืนสต็อก/แต้มแล้ว",
+                                fontSize = 12.sp,
+                                color = StatusDanger,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(10.dp)
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text(text = "รายการสินค้า:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(text = "รายการสินค้า (${ord.totalQty} ชิ้น):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
 
                     LazyColumn(
                         modifier = Modifier.weight(1f),
@@ -217,13 +255,16 @@ fun OrderHistoryScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = item.productName, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text(text = "คิดเงิน ${item.paidQty} ชิ้น", fontSize = 11.sp, color = TextSecondary)
-                                        if (item.freeQty > 0) {
-                                            Text(text = "• ของแถม ${item.freeQty} ชิ้น", fontSize = 11.sp, color = PastelPeachDark, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
+                                    Text(
+                                        text = "${item.nameSnapshot} ${item.volumeSnapshot ?: ""}".trim(),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "${item.qty} ชิ้น x ${Formatters.formatCurrency(item.unitPrice)}",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
                                 }
                                 Text(
                                     text = Formatters.formatCurrency(item.subtotal),
@@ -232,31 +273,84 @@ fun OrderHistoryScreen(
                                 )
                             }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Divider(color = BorderLight, thickness = 0.8.dp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                        if (ord.freeItems.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "ของแถมที่แลกรับ:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = PastelPeachDark
+                                )
+                            }
+                            items(ord.freeItems) { free ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "รหัสสินค้า ${free.productId}",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary
+                                    )
+                                    Text(
+                                        text = "${free.qty} ชิ้น (ฟรี)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PastelPeachDark
+                                    )
+                                }
+                            }
+                        }
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(text = "ยอดรวมสินค้า", fontSize = 12.sp, color = TextSecondary)
-                        Text(text = Formatters.formatCurrency(ord.subtotal), fontSize = 12.sp)
-                    }
-
-                    if (ord.redeemedPoints > 0) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(text = "ส่วนลดแต้ม (${ord.redeemedPoints} แต้ม)", fontSize = 12.sp, color = StatusSuccess)
-                            Text(text = "-${Formatters.formatCurrency(ord.discountAmount)}", fontSize = 12.sp, color = StatusSuccess)
+                        if (ord.pointUses.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "แต้มสะสมที่ใช้แลก:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = StatusSuccess
+                                )
+                            }
+                            items(ord.pointUses) { pUse ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "แต้มสินค้า ${pUse.productId}",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary
+                                    )
+                                    Text(
+                                        text = "-${pUse.points} แต้ม",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = StatusSuccess
+                                    )
+                                }
+                            }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "ยอดสุทธิ", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(text = Formatters.formatCurrency(ord.totalAmount), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = PastelPeach)
+                        Text(text = "ยอดรวมสุทธิ", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text(
+                            text = Formatters.formatCurrency(ord.total),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PastelPeach
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -270,7 +364,7 @@ fun OrderHistoryScreen(
                             Text("ปิด")
                         }
 
-                        if (ord.status == "COMPLETED") {
+                        if (!ord.isVoided && isAdmin) {
                             Button(
                                 onClick = { viewModel.openVoidDialog(ord) },
                                 colors = ButtonDefaults.buttonColors(containerColor = StatusDanger),
@@ -291,7 +385,8 @@ fun OrderHistoryScreen(
 
 @Composable
 private fun OrderCardItem(
-    order: OrderRecord,
+    order: OrderSummary,
+    canVoid: Boolean,
     onClick: () -> Unit,
     onVoid: () -> Unit
 ) {
@@ -307,8 +402,13 @@ private fun OrderCardItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = order.orderNumber, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                OrderStatusBadge(status = order.status)
+                Text(
+                    text = "บิล #${order.id.take(8)}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = TextPrimary
+                )
+                OrderStatusBadge(status = if (order.isVoided) "VOIDED" else "COMPLETED")
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -319,12 +419,12 @@ private fun OrderCardItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ลูกค้า: ${order.customerName ?: "ทั่วไป"} • ${order.paymentMethod}",
+                    text = "ลูกค้า: ${order.customerName.ifBlank { "ไม่ระบุ" }} • ${order.totalQty} ชิ้น",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
                 Text(
-                    text = Formatters.formatCurrency(order.totalAmount),
+                    text = Formatters.formatCurrency(order.total),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = PastelPeach
@@ -344,7 +444,7 @@ private fun OrderCardItem(
                     color = TextMuted
                 )
 
-                if (order.status == "COMPLETED") {
+                if (canVoid) {
                     TextButton(
                         onClick = onVoid,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)

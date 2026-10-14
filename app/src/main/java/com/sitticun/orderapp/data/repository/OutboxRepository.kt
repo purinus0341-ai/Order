@@ -2,7 +2,10 @@ package com.sitticun.orderapp.data.repository
 
 import com.sitticun.orderapp.data.api.SupabaseClient
 import com.sitticun.orderapp.data.local.OrderDatabaseHelper
-import com.sitticun.orderapp.data.model.*
+import com.sitticun.orderapp.data.local.OutboxTask
+import com.sitticun.orderapp.data.model.CommitSaleRpcPayload
+import com.sitticun.orderapp.data.model.OutboxItem
+import com.sitticun.orderapp.data.model.OutboxStatus
 import com.sitticun.orderapp.util.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +33,19 @@ class OutboxRepository(
     }
 
     fun refreshOutbox() {
-        _outboxItems.value = dbHelper.getAllOutboxItems()
+        val tasks = dbHelper.getAllOutbox()
+        _outboxItems.value = tasks.map {
+            OutboxItem(
+                id = it.id,
+                actionType = it.actionType,
+                idempotencyKey = it.idempotencyKey,
+                payloadJson = it.payloadJson,
+                createdAt = it.createdAt,
+                status = it.status,
+                retryCount = it.retryCount,
+                lastError = it.lastError
+            )
+        }
     }
 
     suspend fun syncPendingItems(): Int = withContext(Dispatchers.IO) {
@@ -41,17 +56,17 @@ class OutboxRepository(
         var successCount = 0
 
         try {
-            val pending = dbHelper.getPendingOutboxItems()
-            for (item in pending) {
-                dbHelper.updateOutboxStatus(item.id, OutboxStatus.SYNCING)
+            val pending = dbHelper.getPendingOutbox()
+            for (task in pending) {
+                dbHelper.updateOutboxStatus(task.id, OutboxStatus.SYNCING)
 
-                val result = processSingleOutboxItem(item)
+                val result = processSingleTask(task)
                 if (result.isSuccess) {
-                    dbHelper.updateOutboxStatus(item.id, OutboxStatus.SYNCED)
+                    dbHelper.updateOutboxStatus(task.id, OutboxStatus.SYNCED)
                     successCount++
                 } else {
                     val err = result.exceptionOrNull()?.message ?: "Sync error"
-                    dbHelper.updateOutboxStatus(item.id, OutboxStatus.FAILED, err)
+                    dbHelper.incrementOutboxRetry(task.id, err)
                 }
             }
         } finally {
@@ -62,53 +77,31 @@ class OutboxRepository(
         successCount
     }
 
-    private suspend fun processSingleOutboxItem(item: OutboxItem): Result<Unit> {
+    private suspend fun processSingleTask(task: OutboxTask): Result<Unit> {
         return try {
-            when (item.actionType) {
-                OutboxActionType.COMMIT_SALE -> {
-                    val req = json.decodeFromString<CommitSaleRequest>(item.payloadJson)
-                    val res = supabaseClient.commitSaleRpc(req)
+            when (task.actionType) {
+                "commit_sale" -> {
+                    val req = json.decodeFromString<CommitSaleRpcPayload>(task.payloadJson)
+                    val res = supabaseClient.commitSale(req.order, req.idempotencyKey, req.deviceId ?: "")
                     if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC commit_sale failed"))
                 }
-                OutboxActionType.VOID_SALE -> {
-                    val req = json.decodeFromString<VoidSaleRequest>(item.payloadJson)
-                    val res = supabaseClient.voidSaleRpc(req)
-                    if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC void_sale failed"))
-                }
-                OutboxActionType.STOCK_ADJUSTMENT -> {
-                    val req = json.decodeFromString<StockAdjustmentPayload>(item.payloadJson)
-                    val res = supabaseClient.adjustStockRpc(req)
-                    if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC adjust_stock failed"))
-                }
-                OutboxActionType.CUSTOMER_POINTS -> {
-                    val req = json.decodeFromString<PointsAdjustmentPayload>(item.payloadJson)
-                    val res = supabaseClient.adjustCustomerPoints(req)
-                    if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC adjust_points failed"))
-                }
-                OutboxActionType.PRODUCT_UPSERT -> {
-                    val req = json.decodeFromString<ProductUpsertPayload>(item.payloadJson)
-                    val res = supabaseClient.upsertProduct(req)
-                    if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("Upsert product failed"))
-                }
-                OutboxActionType.CUSTOMER_UPSERT -> {
-                    val req = json.decodeFromString<CustomerUpsertPayload>(item.payloadJson)
-                    val res = supabaseClient.upsertCustomer(req)
-                    if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("Upsert customer failed"))
-                }
-                else -> Result.failure(Exception("Unknown action type ${item.actionType}"))
+                else -> Result.failure(Exception("Unknown action type: ${task.actionType}"))
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    fun clearCompleted() {
-        dbHelper.clearSyncedOutboxItems()
+    fun deleteItem(id: Long) {
+        dbHelper.deleteOutbox(id)
         refreshOutbox()
     }
 
-    fun clearAll() {
-        dbHelper.clearAllOutboxItems()
+    fun clearSynced() {
+        val items = dbHelper.getAllOutbox().filter { it.status == OutboxStatus.SYNCED }
+        for (item in items) {
+            dbHelper.deleteOutbox(item.id)
+        }
         refreshOutbox()
     }
 }

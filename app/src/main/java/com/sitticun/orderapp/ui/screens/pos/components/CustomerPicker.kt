@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -24,25 +23,61 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.sitticun.orderapp.data.model.Customer
 import com.sitticun.orderapp.ui.theme.*
-import com.sitticun.orderapp.util.Formatters
 
 @Composable
 fun CustomerPickerDialog(
     customers: List<Customer>,
     selectedCustomer: Customer?,
-    onSelectCustomer: (Customer?) -> Unit,
+    onSelectCustomer: (Customer) -> Unit,
+    onCreateCustomer: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newCustomerName by remember { mutableStateOf("") }
 
     val filteredCustomers = remember(customers, searchQuery) {
         if (searchQuery.isBlank()) customers
         else {
             customers.filter {
-                it.name.contains(searchQuery, ignoreCase = true) ||
-                        it.phone.contains(searchQuery, ignoreCase = true)
+                it.name.contains(searchQuery, ignoreCase = true)
             }
         }
+    }
+
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = { Text("เพิ่มลูกค้าใหม่", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newCustomerName,
+                    onValueChange = { newCustomerName = it },
+                    label = { Text("ชื่อลูกค้า") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newCustomerName.isNotBlank()) {
+                            onCreateCustomer(newCustomerName.trim())
+                            showCreateDialog = false
+                            newCustomerName = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                ) {
+                    Text("บันทึก")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text("ยกเลิก")
+                }
+            }
+        )
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -78,7 +113,7 @@ fun CustomerPickerDialog(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("ค้นหาชื่อ หรือ เบอร์โทรศัพท์...") },
+                    placeholder = { Text("ค้นหาชื่อลูกค้า...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = PastelMint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -89,84 +124,59 @@ fun CustomerPickerDialog(
                     )
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Option: Walk-in guest (ไม่ระบุสมาชิก)
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectCustomer(null) },
+                // Add Customer Button
+                Button(
+                    onClick = { showCreateDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = if (selectedCustomer == null) PastelMintLight else SurfaceVariantColor
+                    colors = ButtonDefaults.buttonColors(containerColor = PastelMintLight, contentColor = PastelMintDark)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(PastelMint),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "ลูกค้าทั่วไป (Walk-in)",
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = "ไม่บันทึกแต้มสะสม",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
+                    Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("เพิ่มลูกค้าใหม่", fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
-
-                Divider(color = BorderLight, thickness = 0.8.dp)
-
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Customers List
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filteredCustomers, key = { it.id }) { customer ->
-                        val isSelected = selectedCustomer?.id == customer.id
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectCustomer(customer) },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) PastelLavenderLight else CardWhite
-                            ),
-                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, PastelLavender)
-                            else androidx.compose.foundation.BorderStroke(0.8.dp, BorderLight)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                if (filteredCustomers.isEmpty()) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("ไม่พบรายชื่อลูกค้า", color = TextSecondary)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredCustomers, key = { it.id }) { customer ->
+                            val isSelected = selectedCustomer?.id == customer.id
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSelectCustomer(customer)
+                                        onDismiss()
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) PastelLavenderLight else CardWhite
+                                ),
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, PastelLavender)
+                                else androidx.compose.foundation.BorderStroke(0.8.dp, BorderLight)
                             ) {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .size(36.dp)
                                             .clip(CircleShape)
-                                            .background(PastelLavender),
+                                            .background(if (isSelected) PastelLavender else PastelMint),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
@@ -184,28 +194,12 @@ fun CustomerPickerDialog(
                                             fontSize = 14.sp,
                                             color = TextPrimary
                                         )
-                                        if (customer.phone.isNotBlank()) {
-                                            Text(
-                                                text = customer.phone,
-                                                fontSize = 12.sp,
-                                                color = TextSecondary
-                                            )
-                                        }
+                                        Text(
+                                            text = "ID: ${customer.id.take(12)}",
+                                            fontSize = 11.sp,
+                                            color = TextMuted
+                                        )
                                     }
-                                }
-
-                                // Points Badge
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = PastelPeachLight
-                                ) {
-                                    Text(
-                                        text = Formatters.formatPoints(customer.pointsBalance),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = PastelPeachDark,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
                                 }
                             }
                         }

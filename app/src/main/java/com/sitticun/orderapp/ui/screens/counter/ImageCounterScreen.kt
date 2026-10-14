@@ -8,12 +8,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +24,9 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -41,26 +42,24 @@ fun ImageCounterScreen(
     val state by viewModel.uiState.collectAsState()
     val products by viewModel.products.collectAsState()
 
+    var canvasSize by remember { mutableStateOf(IntSize(1, 1)) }
+
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         viewModel.onImageSelected(uri)
     }
 
-    if (state.showSaveDialog && state.selectedProduct != null) {
-        SaveCountToStockDialog(
-            products = products,
-            selectedProduct = state.selectedProduct!!,
+    if (state.showSaveDialog) {
+        SaveCountSessionDialog(
             countedQty = state.totalCount,
             isSaving = state.isSaving,
-            onSelectProduct = { viewModel.selectTargetProduct(it) },
-            onConfirm = { isOverride -> viewModel.saveCountToStock(isOverride) },
+            onConfirm = { note -> viewModel.saveSession(note) },
             onDismiss = { viewModel.dismissSaveDialog() }
         )
     }
 
     if (state.message != null || state.errorMessage != null) {
-        val isErr = state.errorMessage != null
         LaunchedEffect(state.message, state.errorMessage) {
             kotlinx.coroutines.delay(3000)
             viewModel.clearMessage()
@@ -71,27 +70,47 @@ fun ImageCounterScreen(
         containerColor = PastelBackground,
         topBar = {
             Surface(color = CardWhite, shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(text = "ระบบนับสต็อกจากรูปภาพ", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(text = "แตะบนรูปเพื่อวางจุดมาร์กลำดับ 1, 2, 3...", fontSize = 12.sp, color = TextSecondary)
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(text = "นับสต็อกจากรูปภาพ (Image Counter)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text(text = "แตะเพื่อวางจุดมาร์กพิกัด Normalized (0-1)", fontSize = 11.sp, color = TextSecondary)
+                        }
+
+                        Button(
+                            onClick = { galleryLauncher.launch("image/*") },
+                            colors = ButtonDefaults.buttonColors(containerColor = PastelLavender),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (state.selectedImageUri != null) "เปลี่ยนรูป" else "เลือกรูปภาพ", fontSize = 12.sp)
+                        }
                     }
 
-                    Button(
-                        onClick = { galleryLauncher.launch("image/*") },
-                        colors = ButtonDefaults.buttonColors(containerColor = PastelLavender),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (state.selectedImageUri != null) "เปลี่ยนรูป" else "เลือกรูปภาพ", fontSize = 12.sp)
+                    // Product Selector Chips
+                    if (products.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(products) { p ->
+                                val isSelected = p.id == state.selectedProduct?.id
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.selectTargetProduct(p) },
+                                    label = { Text(p.name, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = PastelMint,
+                                        selectedLabelColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -102,17 +121,18 @@ fun ImageCounterScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Interactive Canvas Area
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
+                    .onSizeChanged { canvasSize = it }
+                    .pointerInput(canvasSize) {
                         detectTapGestures { offset ->
-                            viewModel.addMarker(offset.x, offset.y)
+                            val normX = if (canvasSize.width > 0) offset.x / canvasSize.width else 0.5f
+                            val normY = if (canvasSize.height > 0) offset.y / canvasSize.height else 0.5f
+                            viewModel.addMarker(normX, normY)
                         }
                     }
             ) {
-                // If user selected an image, show AsyncImage as background
                 if (state.selectedImageUri != null) {
                     AsyncImage(
                         model = state.selectedImageUri,
@@ -121,7 +141,6 @@ fun ImageCounterScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    // Default grid canvas background hint
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -129,12 +148,12 @@ fun ImageCounterScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = TextMuted, modifier = Modifier.size(64.dp))
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text(text = "แตะปุ่ม 'เลือกรูปภาพ' ด้านบน หรือแตะบนพื้นที่ว่างเพื่อทดลองนับ", color = TextSecondary, fontSize = 13.sp)
+                            Text(text = "แตะปุ่ม 'เลือกรูปภาพ' ด้านบน หรือแตะบนพื้นที่เพื่อวางจุด", color = TextSecondary, fontSize = 13.sp)
                         }
                     }
                 }
 
-                // Render Marker Dots Canvas overlay
+                // Render Canvas Overlay
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val paint = Paint().apply {
                         textAlign = Paint.Align.CENTER
@@ -143,34 +162,37 @@ fun ImageCounterScreen(
                         isFakeBoldText = true
                     }
 
+                    val w = size.width
+                    val h = size.height
+
                     for (marker in state.markers) {
+                        val posX = marker.xNormalized * w
+                        val posY = marker.yNormalized * h
+
                         val markerColor = try {
                             Color(android.graphics.Color.parseColor(marker.colorHex))
                         } catch (e: Exception) {
                             PastelMint
                         }
 
-                        // Outer marker circle
                         drawCircle(
                             color = markerColor,
                             radius = 24f,
-                            center = Offset(marker.x, marker.y)
+                            center = Offset(posX, posY)
                         )
 
-                        // Outer white stroke
                         drawCircle(
                             color = Color.White,
                             radius = 24f,
-                            center = Offset(marker.x, marker.y),
+                            center = Offset(posX, posY),
                             style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
                         )
 
-                        // Draw sequence number text inside circle
                         drawIntoCanvas { canvas ->
-                            val textY = marker.y - ((paint.descent() + paint.ascent()) / 2)
+                            val textY = posY - ((paint.descent() + paint.ascent()) / 2)
                             canvas.nativeCanvas.drawText(
                                 marker.seq.toString(),
-                                marker.x,
+                                posX,
                                 textY,
                                 paint
                             )
@@ -199,7 +221,7 @@ fun ImageCounterScreen(
                 }
             }
 
-            // Bottom Floating Marker Toolbar
+            // Marker Toolbar
             MarkerToolbar(
                 totalCount = state.totalCount,
                 selectedColorHex = state.selectedColorHex,
@@ -216,96 +238,45 @@ fun ImageCounterScreen(
 }
 
 @Composable
-fun SaveCountToStockDialog(
-    products: List<Product>,
-    selectedProduct: Product,
+fun SaveCountSessionDialog(
     countedQty: Int,
     isSaving: Boolean,
-    onSelectProduct: (Product) -> Unit,
-    onConfirm: (isOverride: Boolean) -> Unit,
+    onConfirm: (note: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var isOverride by remember { mutableStateOf(true) }
+    var note by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = CardWhite),
-            modifier = Modifier.fillMaxWidth().heightIn(max = 540.dp).padding(12.dp)
+            modifier = Modifier.fillMaxWidth().padding(12.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "บันทึกยอดนับลงสต็อก",
+                    text = "บันทึกการนับ (Count Session)",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "จำนวนจุดที่นับได้: $countedQty ชิ้น",
+                    text = "จำนวนจุดที่มาร์กไว้ทั้งหมด: $countedQty จุด",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = PastelPeach
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
-                Text(text = "เลือกสินค้าที่ต้องการอัปเดต:", fontSize = 12.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(6.dp))
 
-                // Product selector
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 160.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(products, key = { it.id }) { p ->
-                        val isSelected = p.id == selectedProduct.id
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectProduct(p) },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) PastelMintLight else SurfaceVariantColor
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(text = p.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(text = "สต็อกเดิม: ${p.stockQty} ชิ้น", fontSize = 11.sp, color = TextMuted)
-                                }
-                                if (isSelected) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = PastelMintDark)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(text = "วิธีกระทบยอดสต็อก:", fontSize = 12.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { isOverride = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isOverride) PastelMint else SurfaceVariantColor),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("แทนที่สต็อกเดิม ($countedQty)", color = if (isOverride) Color.White else TextPrimary, fontSize = 12.sp)
-                    }
-
-                    Button(
-                        onClick = { isOverride = false },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (!isOverride) PastelPeach else SurfaceVariantColor),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("บวกเพิ่ม (${selectedProduct.stockQty + countedQty})", color = if (!isOverride) Color.White else TextPrimary, fontSize = 12.sp)
-                    }
-                }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("โน้ตเพิ่มเติม (ถ้ามี)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 
@@ -315,7 +286,7 @@ fun SaveCountToStockDialog(
                     }
 
                     Button(
-                        onClick = { onConfirm(isOverride) },
+                        onClick = { onConfirm(note) },
                         enabled = !isSaving,
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = PastelMint),
@@ -324,7 +295,7 @@ fun SaveCountToStockDialog(
                         if (isSaving) {
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         } else {
-                            Text("บันทึกสต็อก", fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("บันทึก Cloud", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 }

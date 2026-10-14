@@ -48,22 +48,20 @@ class OrderApplication : Application() {
 
         authRepository = AuthRepository(supabaseClient, preferenceManager)
         productRepository = ProductRepository(supabaseClient, databaseHelper, networkMonitor)
-        customerRepository = CustomerRepository(supabaseClient, databaseHelper, networkMonitor, deviceIdProvider)
+        customerRepository = CustomerRepository(supabaseClient, databaseHelper, networkMonitor)
         orderRepository = OrderRepository(
-            supabaseClient,
-            databaseHelper,
-            preferenceManager,
-            productRepository,
-            customerRepository,
-            networkMonitor,
-            deviceIdProvider
+            supabaseClient = supabaseClient,
+            dbHelper = databaseHelper,
+            preferenceManager = preferenceManager,
+            networkMonitor = networkMonitor,
+            deviceIdProvider = deviceIdProvider
         )
         stockRepository = StockRepository(
-            supabaseClient,
-            databaseHelper,
-            productRepository,
-            networkMonitor,
-            deviceIdProvider
+            supabaseClient = supabaseClient,
+            dbHelper = databaseHelper,
+            productRepository = productRepository,
+            networkMonitor = networkMonitor,
+            deviceIdProvider = deviceIdProvider
         )
         outboxRepository = OutboxRepository(supabaseClient, databaseHelper, networkMonitor)
         updateRepository = UpdateRepository()

@@ -1,7 +1,6 @@
 package com.sitticun.orderapp.ui.screens.admin
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,7 +19,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.sitticun.orderapp.data.model.Product
 import com.sitticun.orderapp.data.model.ProductUpsertPayload
-import com.sitticun.orderapp.ui.components.StockBadge
 import com.sitticun.orderapp.ui.theme.*
 import com.sitticun.orderapp.util.Formatters
 
@@ -56,7 +54,7 @@ fun ProductAdminScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "จัดการสินค้าในระบบ (${products.size} รายการ)",
+                text = "รายการสินค้าในระบบ (${products.size} รายการ)",
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 color = TextPrimary
@@ -88,29 +86,38 @@ fun ProductAdminScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(text = prod.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(text = prod.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 if (!prod.isActive) {
                                     Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFFFEBEE)) {
                                         Text("ปิดการขาย", color = StatusDanger, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!prod.tag.isNullOrBlank()) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = PastelMintLight) {
+                                        Text(text = "แท็ก: ${prod.tag}", fontSize = 11.sp, color = PastelMintDark, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    }
+                                }
+                                if (!prod.volume.isNullOrBlank()) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = PastelLavenderLight) {
+                                        Text(text = "ขนาด: ${prod.volume}", fontSize = 11.sp, color = PastelLavenderDark, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "ราคา: ${Formatters.formatCurrency(prod.price)} • ทุน: ${Formatters.formatCurrency(prod.cost)} • สต็อก: ${prod.stockQty} ชิ้น",
+                                text = "ราคาขาย: ${Formatters.formatCurrency(prod.price)} • ID: ${prod.id}",
                                 fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-                            Text(
-                                text = "SKU: ${prod.sku.ifBlank { "-" }} • บาร์โค้ด: ${prod.barcode.ifBlank { "-" }} • หมวด: ${prod.category}",
-                                fontSize = 11.sp,
-                                color = TextMuted
+                                fontWeight = FontWeight.SemiBold,
+                                color = PastelPeach
                             )
                         }
 
@@ -140,20 +147,16 @@ fun ProductEditDialog(
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(product?.name ?: "") }
-    var sku by remember { mutableStateOf(product?.sku ?: "") }
-    var barcode by remember { mutableStateOf(product?.barcode ?: "") }
-    var category by remember { mutableStateOf(product?.category ?: "ทั่วไป") }
-    var priceText by remember { mutableStateOf(product?.price?.toString() ?: "0.0") }
-    var costText by remember { mutableStateOf(product?.cost?.toString() ?: "0.0") }
-    var stockText by remember { mutableStateOf(product?.stockQty?.toString() ?: "10") }
-    var alertText by remember { mutableStateOf(product?.minStockAlert?.toString() ?: "5") }
+    var tag by remember { mutableStateOf(product?.tag ?: "") }
+    var volume by remember { mutableStateOf(product?.volume ?: "") }
+    var priceText by remember { mutableStateOf(product?.price?.toString() ?: "15.0") }
     var isActive by remember { mutableStateOf(product?.isActive ?: true) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = CardWhite),
-            modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(12.dp)
+            modifier = Modifier.fillMaxWidth().padding(12.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
@@ -165,96 +168,68 @@ fun ProductEditDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("ชื่อสินค้า *") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = priceText,
-                                onValueChange = { priceText = it },
-                                label = { Text("ราคาขาย (฿) *") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            OutlinedTextField(
-                                value = costText,
-                                onValueChange = { costText = it },
-                                label = { Text("ต้นทุน (฿)") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        }
-                    }
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = stockText,
-                                onValueChange = { stockText = it.filter { c -> c.isDigit() } },
-                                label = { Text("จำนวนสต็อก") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            OutlinedTextField(
-                                value = alertText,
-                                onValueChange = { alertText = it.filter { c -> c.isDigit() } },
-                                label = { Text("เตือนเมื่อต่ำกว่า") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        }
-                    }
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = barcode,
-                                onValueChange = { barcode = it },
-                                label = { Text("บาร์โค้ด") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            OutlinedTextField(
-                                value = sku,
-                                onValueChange = { sku = it },
-                                label = { Text("SKU") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        }
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = category,
-                            onValueChange = { category = it },
-                            label = { Text("หมวดหมู่สินค้า") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("เปิดขายในระบบ POS (is_active)", fontSize = 13.sp)
-                            Switch(
-                                checked = isActive,
-                                onCheckedChange = { isActive = it },
-                                colors = SwitchDefaults.colors(checkedThumbColor = PastelMint, checkedTrackColor = PastelMintLight)
-                            )
-                        }
-                    }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("ชื่อสินค้า *") },
+                    placeholder = { Text("เช่น น้ำถัง 18.9 ลิตร") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = tag,
+                        onValueChange = { tag = it },
+                        label = { Text("แท็กสินค้า (Tag)") },
+                        placeholder = { Text("18.9L") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = volume,
+                        onValueChange = { volume = it },
+                        label = { Text("ขนาด / ปริมาตร") },
+                        placeholder = { Text("18.9 ลิตร") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = priceText,
+                    onValueChange = { priceText = it },
+                    label = { Text("ราคาขาย (฿) *") },
+                    placeholder = { Text("15.0") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("เปิดขายในระบบ POS (is_active)", fontSize = 13.sp)
+                    Switch(
+                        checked = isActive,
+                        onCheckedChange = { isActive = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = PastelMint, checkedTrackColor = PastelMintLight)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
@@ -264,19 +239,12 @@ fun ProductEditDialog(
                     Button(
                         onClick = {
                             val price = priceText.toDoubleOrNull() ?: 0.0
-                            val cost = costText.toDoubleOrNull() ?: 0.0
-                            val stock = stockText.toIntOrNull() ?: 0
-                            val alert = alertText.toIntOrNull() ?: 5
                             val payload = ProductUpsertPayload(
                                 id = product?.id,
                                 name = name.trim(),
-                                sku = sku.trim(),
-                                barcode = barcode.trim(),
-                                category = category.trim(),
+                                tag = tag.trim().ifBlank { null },
+                                volume = volume.trim().ifBlank { null },
                                 price = price,
-                                cost = cost,
-                                stockQty = stock,
-                                minStockAlert = alert,
                                 isActive = isActive
                             )
                             onSave(payload)

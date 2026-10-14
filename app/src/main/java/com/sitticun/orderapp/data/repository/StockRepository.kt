@@ -4,15 +4,15 @@ import com.sitticun.orderapp.data.api.SupabaseClient
 import com.sitticun.orderapp.data.local.OrderDatabaseHelper
 import com.sitticun.orderapp.data.model.*
 import com.sitticun.orderapp.util.DeviceIdProvider
-import com.sitticun.orderapp.util.Formatters
 import com.sitticun.orderapp.util.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 class StockRepository(
@@ -22,98 +22,151 @@ class StockRepository(
     private val networkMonitor: NetworkMonitor,
     private val deviceIdProvider: DeviceIdProvider
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
     private val _snapshots = MutableStateFlow<List<StockSnapshot>>(emptyList())
     val snapshots: StateFlow<List<StockSnapshot>> = _snapshots.asStateFlow()
 
+    private val _countSessions = MutableStateFlow<List<CountSession>>(emptyList())
+    val countSessions: StateFlow<List<CountSession>> = _countSessions.asStateFlow()
+
     init {
-        _snapshots.value = dbHelper.getStockSnapshots()
+        _snapshots.value = dbHelper.getAllStockSnapshots()
+        _countSessions.value = dbHelper.getAllCountSessions()
     }
 
-    suspend fun adjustStock(
-        productId: String,
-        newQty: Int,
-        reason: String
-    ): Result<StockSnapshot> = withContext(Dispatchers.IO) {
-        val products = productRepository.products.value
-        val product = products.find { it.id == productId }
-            ?: return@withContext Result.failure(Exception("ไม่พบสินค้ารหัส $productId"))
+    suspend fun loadSnapshots(forceRefresh: Boolean = false): List<StockSnapshot> = withContext(Dispatchers.IO) {
+        val cached = dbHelper.getAllStockSnapshots()
+        if (cached.isNotEmpty()) {
+            _snapshots.value = cached
+        }
 
-        val previousQty = product.stockQty
-        val deltaQty = newQty - previousQty
-        val snapshotId = "snap-" + UUID.randomUUID().toString()
-        val idempotencyKey = UUID.randomUUID().toString()
+        if (networkMonitor.isOnline && (cached.isEmpty() || forceRefresh)) {
+            val remoteRes = supabaseClient.getStockSnapshots()
+            if (remoteRes.isSuccess) {
+                val list = remoteRes.getOrThrow()
+                dbHelper.saveStockSnapshots(list)
+                _snapshots.value = list
+                return@withContext list
+            }
+        }
+        _snapshots.value
+    }
+
+    // Calculates system stock for all active products:
+    // System Stock = (Qty in Latest Snapshot) - (Paid Qty + Free Qty sold since snapshot)
+    suspend fun getStockComparisons(currentInputs: Map<Long, Int>): List<ProductStockComparison> = withContext(Dispatchers.IO) {
+        val products = productRepository.loadProducts()
+        val latestSnapshot = dbHelper.getLatestStockSnapshot()
+
+        val snapshotCounts = latestSnapshot?.items?.associate { it.productId to it.qty } ?: emptyMap()
+        val soldSince = dbHelper.getProductTotalSoldSince(latestSnapshot?.capturedAt)
+
+        products.map { product ->
+            val baseQty = snapshotCounts[product.id] ?: 0
+            val sold = soldSince[product.id] ?: 0
+            val systemQty = (baseQty - sold).coerceAtLeast(0)
+            val actualQty = currentInputs[product.id] ?: systemQty
+
+            ProductStockComparison(
+                product = product,
+                systemQty = systemQty,
+                actualQty = actualQty
+            )
+        }
+    }
+
+    suspend fun createSnapshot(
+        counts: Map<Long, Int>,
+        note: String?
+    ): Result<StockSnapshot> = withContext(Dispatchers.IO) {
         val deviceId = deviceIdProvider.getDeviceId()
+        val snapshotUuid = UUID.randomUUID().toString()
+        val snapshotId = "STK-$snapshotUuid"
+        val idempotencyKey = "stock:$deviceId:$snapshotUuid"
+        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+
+        val items = counts.map { (productId, qty) ->
+            StockSnapshotItem(
+                id = "STKI-${UUID.randomUUID()}",
+                snapshotId = snapshotId,
+                productId = productId,
+                qty = qty
+            )
+        }
 
         val snapshot = StockSnapshot(
             id = snapshotId,
-            productId = productId,
-            productName = product.name,
-            previousQty = previousQty,
-            newQty = newQty,
-            deltaQty = deltaQty,
-            reason = reason,
-            createdAt = Formatters.getCurrentIsoTimestamp()
+            capturedAt = isoNow,
+            note = note?.trim()?.ifBlank { null },
+            sourceDeviceId = deviceId,
+            items = items
         )
 
-        // Update local database
-        dbHelper.insertStockSnapshot(snapshot)
-        productRepository.setStockLocally(productId, newQty)
-        _snapshots.value = dbHelper.getStockSnapshots()
-
-        val payload = StockAdjustmentPayload(
-            productId = productId,
-            newStockQty = newQty,
-            deltaQty = deltaQty,
-            reason = reason,
-            idempotencyKey = idempotencyKey,
-            deviceId = deviceId
-        )
+        dbHelper.saveStockSnapshot(snapshot)
+        _snapshots.value = dbHelper.getAllStockSnapshots()
 
         if (networkMonitor.isOnline) {
-            val res = supabaseClient.adjustStockRpc(payload)
-            if (res.isSuccess) {
+            val remoteRes = supabaseClient.createStockSnapshot(snapshot, idempotencyKey)
+            if (remoteRes.isSuccess) {
+                // Trigger line notify in background
+                supabaseClient.notifyStockSnapshot(snapshotId)
                 return@withContext Result.success(snapshot)
             }
         }
 
-        // Offline queue
-        dbHelper.insertOutboxItem(
-            actionType = OutboxActionType.STOCK_ADJUSTMENT,
-            idempotencyKey = idempotencyKey,
-            payloadJson = json.encodeToString(payload)
-        )
-
         Result.success(snapshot)
     }
 
-    suspend fun saveImageCount(
-        productId: String,
-        countedQty: Int,
-        isOverride: Boolean
-    ): Result<StockSnapshot> = withContext(Dispatchers.IO) {
-        val products = productRepository.products.value
-        val product = products.find { it.id == productId }
-            ?: return@withContext Result.failure(Exception("ไม่พบสินค้าที่เลือก"))
-
-        val newStock = if (isOverride) countedQty else (product.stockQty + countedQty)
-        adjustStock(
-            productId = productId,
-            newQty = newStock,
-            reason = if (isOverride) "นับสต็อกจากรูปภาพ (บันทึกทับ: $countedQty ชิ้น)" else "นับสต็อกจากรูปภาพ (บวกเพิ่ม: $countedQty ชิ้น)"
-        )
-    }
-
-    suspend fun sendLineStockNotification(lowStockOnly: Boolean = true): Result<LineStockNotifyResponse> = withContext(Dispatchers.IO) {
+    suspend fun sendLineStockNotification(snapshotId: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (!networkMonitor.isOnline) {
             return@withContext Result.failure(Exception("ไม่สามารถส่ง LINE ได้ขณะออฟไลน์"))
         }
+        supabaseClient.notifyStockSnapshot(snapshotId)
+    }
 
-        val request = LineStockNotifyRequest(
-            triggerSource = "orderapp_android_pos",
-            lowStockOnly = lowStockOnly
-        )
+    // -------------------------------------------------------------
+    // COUNT SESSIONS & MARKERS
+    // -------------------------------------------------------------
+    suspend fun loadCountSessions(): List<CountSession> = withContext(Dispatchers.IO) {
+        val cached = dbHelper.getAllCountSessions()
+        if (cached.isNotEmpty()) {
+            _countSessions.value = cached
+        }
 
-        supabaseClient.triggerLineStockNotify(request)
+        if (networkMonitor.isOnline) {
+            val remote = supabaseClient.getCountSessions()
+            if (remote.isSuccess) {
+                val list = remote.getOrThrow()
+                for (s in list) {
+                    dbHelper.saveCountSession(s)
+                }
+                _countSessions.value = dbHelper.getAllCountSessions()
+                return@withContext _countSessions.value
+            }
+        }
+        _countSessions.value
+    }
+
+    suspend fun saveCountSession(
+        session: CountSession,
+        imageBytes: ByteArray? = null,
+        mimeType: String = "image/jpeg"
+    ): Result<CountSession> = withContext(Dispatchers.IO) {
+        dbHelper.saveCountSession(session)
+        _countSessions.value = dbHelper.getAllCountSessions()
+
+        if (networkMonitor.isOnline) {
+            if (imageBytes != null && !session.imagePath.isNullOrBlank()) {
+                supabaseClient.uploadCountImage(session.imagePath, imageBytes, mimeType)
+            }
+            val saveSessionRes = supabaseClient.saveCountSession(session, 0L)
+            if (saveSessionRes.isSuccess) {
+                for (marker in session.markers) {
+                    supabaseClient.addCountMarker(marker)
+                }
+                return@withContext Result.success(session)
+            }
+        }
+
+        Result.success(session)
     }
 }

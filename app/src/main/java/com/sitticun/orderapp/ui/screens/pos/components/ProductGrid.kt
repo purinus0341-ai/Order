@@ -15,13 +15,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sitticun.orderapp.data.model.Product
-import com.sitticun.orderapp.ui.components.StockBadge
 import com.sitticun.orderapp.ui.theme.*
 import com.sitticun.orderapp.util.Formatters
 
@@ -81,14 +79,13 @@ fun ProductCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // Category & Stock Badge Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = product.category,
+                    text = product.tag ?: "สินค้า",
                     fontSize = 11.sp,
                     color = PastelMintDark,
                     fontWeight = FontWeight.Medium,
@@ -96,12 +93,18 @@ fun ProductCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                StockBadge(stockQty = product.stockQty, minAlert = product.minStockAlert)
+                if (!product.volume.isNullOrBlank()) {
+                    Text(
+                        text = product.volume,
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Product Name
             Text(
                 text = product.name,
                 fontSize = 14.sp,
@@ -113,18 +116,8 @@ fun ProductCard(
                 modifier = Modifier.height(36.dp)
             )
 
-            if (product.barcode.isNotBlank()) {
-                Text(
-                    text = product.barcode,
-                    fontSize = 10.sp,
-                    color = TextMuted,
-                    maxLines = 1
-                )
-            }
-
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Price & Add Button Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

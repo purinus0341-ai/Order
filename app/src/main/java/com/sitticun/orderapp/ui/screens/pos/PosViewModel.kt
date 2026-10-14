@@ -15,31 +15,23 @@ import kotlinx.coroutines.launch
 
 data class PosUiState(
     val searchQuery: String = "",
-    val selectedCategory: String = "ทั้งหมด",
     val selectedCustomer: Customer? = null,
+    val customerPointBalances: Map<Long, Long> = emptyMap(),
     val cartItems: List<CartItem> = emptyList(),
-    val redeemedPoints: Int = 0,
+    val heldBillId: String? = null,
     val isCheckingOut: Boolean = false,
-    val checkoutSuccessOrder: CommitSaleResponse? = null,
+    val checkoutSuccess: CloudSaleResult? = null,
     val errorMessage: String? = null,
     val showCustomerPicker: Boolean = false,
-    val showFreeItemsEditor: Boolean = false,
     val showPointsEditor: Boolean = false,
-    val showHeldBillsDialog: Boolean = false,
-    val showPaymentDialog: Boolean = false,
-    val selectedPaymentMethod: String = "CASH"
+    val showFreeItemsEditor: Boolean = false,
+    val showHeldBillsDialog: Boolean = false
 ) {
     val subtotal: Double
-        get() = cartItems.sumOf { it.subtotal }
-
-    val discountAmount: Double
-        get() = redeemedPoints.toDouble()
+        get() = cartItems.sumOf { it.paidQty * it.product.price }
 
     val totalPayable: Double
-        get() = (subtotal - discountAmount).coerceAtLeast(0.0)
-
-    val earnedPoints: Int
-        get() = (totalPayable / 20.0).toInt()
+        get() = subtotal
 
     val totalPaidQty: Int
         get() = cartItems.sumOf { it.paidQty }
@@ -48,7 +40,7 @@ data class PosUiState(
         get() = cartItems.sumOf { it.freeQty }
 
     val totalStockDeduction: Int
-        get() = cartItems.sumOf { it.totalQty }
+        get() = cartItems.sumOf { it.paidQty + it.freeQty }
 }
 
 class PosViewModel(
@@ -65,29 +57,61 @@ class PosViewModel(
     val heldBills = orderRepository.heldBills
 
     init {
-        // Load initial products & customers
         viewModelScope.launch {
             productRepository.loadProducts()
             customerRepository.loadCustomers()
-            restoreDraftCart()
+            orderRepository.loadHeldBills()
+            restoreDraft()
         }
     }
 
-    private fun restoreDraftCart() {
-        val draft = orderRepository.loadDraftCart() ?: return
-        _uiState.value = _uiState.value.copy(
-            cartItems = draft.items,
-            selectedCustomer = draft.customer,
-            redeemedPoints = draft.redeemedPoints
-        )
+    private fun restoreDraft() {
+        val draft = orderRepository.loadDraft() ?: return
+        viewModelScope.launch {
+            val allCustomers = customerRepository.customers.value
+            val cust = allCustomers.find { it.id == draft.customerId }
+            val allProducts = productRepository.products.value
+
+            val restoredCart = allProducts.mapNotNull { p ->
+                val paid = draft.paidQty[p.id.toString()] ?: 0
+                val free = draft.freeQty[p.id.toString()] ?: 0
+                val points = draft.pointsUsed[p.id.toString()] ?: 0
+                if (paid > 0 || free > 0) {
+                    CartItem(product = p, paidQty = paid, freeQty = free, pointsUsed = points)
+                } else null
+            }
+
+            if (cust != null) {
+                val balances = customerRepository.getCustomerPointBalances(cust.id).associate { it.productId to it.balance }
+                _uiState.value = _uiState.value.copy(
+                    selectedCustomer = cust,
+                    customerPointBalances = balances,
+                    cartItems = restoredCart,
+                    heldBillId = draft.heldBillId
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    cartItems = restoredCart,
+                    heldBillId = draft.heldBillId
+                )
+            }
+        }
     }
 
     private fun autoSaveDraft() {
-        val current = _uiState.value
-        orderRepository.saveDraftCart(
-            items = current.cartItems,
-            customer = current.selectedCustomer,
-            redeemedPoints = current.redeemedPoints
+        val state = _uiState.value
+        val paidMap = state.cartItems.associate { it.product.id.toString() to it.paidQty }
+        val freeMap = state.cartItems.associate { it.product.id.toString() to it.freeQty }
+        val pointsMap = state.cartItems.associate { it.product.id.toString() to it.pointsUsed }
+
+        orderRepository.saveDraft(
+            PosDraftState(
+                customerId = state.selectedCustomer?.id,
+                heldBillId = state.heldBillId,
+                paidQty = paidMap,
+                freeQty = freeMap,
+                pointsUsed = pointsMap
+            )
         )
     }
 
@@ -95,12 +119,7 @@ class PosViewModel(
         _uiState.value = _uiState.value.copy(searchQuery = query)
     }
 
-    fun onCategorySelect(category: String) {
-        _uiState.value = _uiState.value.copy(selectedCategory = category)
-    }
-
-    // --- CART ITEM ACTIONS ---
-
+    // --- CART ACTIONS ---
     fun addToCart(product: Product) {
         val current = _uiState.value.cartItems.toMutableList()
         val index = current.indexOfFirst { it.product.id == product.id }
@@ -108,14 +127,13 @@ class PosViewModel(
             val existing = current[index]
             current[index] = existing.copy(paidQty = existing.paidQty + 1)
         } else {
-            current.add(CartItem(product = product, paidQty = 1, freeQty = 0))
+            current.add(CartItem(product = product, paidQty = 1, freeQty = 0, pointsUsed = 0))
         }
         _uiState.value = _uiState.value.copy(cartItems = current)
-        validatePointsCap()
         autoSaveDraft()
     }
 
-    fun updateItemPaidQty(productId: String, delta: Int) {
+    fun updateItemPaidQty(productId: Long, delta: Int) {
         val current = _uiState.value.cartItems.toMutableList()
         val index = current.indexOfFirst { it.product.id == productId }
         if (index >= 0) {
@@ -127,12 +145,11 @@ class PosViewModel(
                 current[index] = item.copy(paidQty = newPaid.coerceAtLeast(0))
             }
             _uiState.value = _uiState.value.copy(cartItems = current)
-            validatePointsCap()
             autoSaveDraft()
         }
     }
 
-    fun updateItemFreeQty(productId: String, delta: Int) {
+    fun updateItemFreeQty(productId: Long, delta: Int) {
         val current = _uiState.value.cartItems.toMutableList()
         val index = current.indexOfFirst { it.product.id == productId }
         if (index >= 0) {
@@ -148,10 +165,20 @@ class PosViewModel(
         }
     }
 
-    fun removeItem(productId: String) {
+    fun updatePointsAndFree(productId: Long, pointsUsed: Int, freeQty: Int) {
+        val current = _uiState.value.cartItems.toMutableList()
+        val index = current.indexOfFirst { it.product.id == productId }
+        if (index >= 0) {
+            val item = current[index]
+            current[index] = item.copy(pointsUsed = pointsUsed, freeQty = freeQty)
+            _uiState.value = _uiState.value.copy(cartItems = current)
+            autoSaveDraft()
+        }
+    }
+
+    fun removeItem(productId: Long) {
         val current = _uiState.value.cartItems.filterNot { it.product.id == productId }
         _uiState.value = _uiState.value.copy(cartItems = current)
-        validatePointsCap()
         autoSaveDraft()
     }
 
@@ -159,94 +186,107 @@ class PosViewModel(
         _uiState.value = _uiState.value.copy(
             cartItems = emptyList(),
             selectedCustomer = null,
-            redeemedPoints = 0
+            customerPointBalances = emptyMap(),
+            heldBillId = null
         )
-        orderRepository.clearDraftCart()
+        orderRepository.clearDraft()
     }
 
     // --- CUSTOMER & POINTS ---
-
-    fun selectCustomer(customer: Customer?) {
-        _uiState.value = _uiState.value.copy(
-            selectedCustomer = customer,
-            showCustomerPicker = false,
-            redeemedPoints = 0 // Reset points on customer change
-        )
-        autoSaveDraft()
+    fun selectCustomer(customer: Customer) {
+        viewModelScope.launch {
+            val balances = customerRepository.getCustomerPointBalances(customer.id).associate { it.productId to it.balance }
+            _uiState.value = _uiState.value.copy(
+                selectedCustomer = customer,
+                customerPointBalances = balances,
+                showCustomerPicker = false
+            )
+            autoSaveDraft()
+        }
     }
 
-    fun setRedeemedPoints(points: Int) {
-        val maxPoints = (_uiState.value.selectedCustomer?.pointsBalance ?: 0)
-        val maxDiscount = _uiState.value.subtotal.toInt()
-        val allowed = points.coerceIn(0, minOf(maxPoints, maxDiscount))
-        _uiState.value = _uiState.value.copy(redeemedPoints = allowed, showPointsEditor = false)
-        autoSaveDraft()
-    }
-
-    private fun validatePointsCap() {
-        val currentPoints = _uiState.value.redeemedPoints
-        val maxAllowed = minOf(
-            _uiState.value.selectedCustomer?.pointsBalance ?: 0,
-            _uiState.value.subtotal.toInt()
-        )
-        if (currentPoints > maxAllowed) {
-            _uiState.value = _uiState.value.copy(redeemedPoints = maxAllowed.coerceAtLeast(0))
+    fun createCustomer(name: String) {
+        viewModelScope.launch {
+            val res = customerRepository.createCustomer(name)
+            if (res.isSuccess) {
+                selectCustomer(res.getOrThrow())
+            }
         }
     }
 
     // --- HELD BILLS ---
-
-    fun holdBill(titleNote: String = "") {
+    fun holdBill(note: String = "") {
         val state = _uiState.value
+        val cust = state.selectedCustomer ?: return
         if (state.cartItems.isEmpty()) return
 
-        orderRepository.holdCurrentBill(
-            title = titleNote,
-            customer = state.selectedCustomer,
-            items = state.cartItems,
-            redeemedPoints = state.redeemedPoints
-        )
+        viewModelScope.launch {
+            val paidMap = state.cartItems.filter { it.paidQty > 0 }.associate { it.product.id to it.paidQty }
+            val pointUses = state.cartItems.filter { it.pointsUsed > 0 }.map { PointUseInput(it.product.id, it.pointsUsed) }
+            val freeItems = state.cartItems.filter { it.freeQty > 0 }.map { FreeItemInput(it.product.id, it.freeQty) }
 
-        clearCart()
-    }
-
-    fun resumeHeldBill(bill: HeldBill) {
-        _uiState.value = _uiState.value.copy(
-            cartItems = bill.items,
-            selectedCustomer = bill.customer,
-            redeemedPoints = bill.redeemedPoints,
-            showHeldBillsDialog = false
-        )
-        orderRepository.deleteHeldBill(bill.id)
-        autoSaveDraft()
-    }
-
-    fun deleteHeldBill(billId: String) {
-        orderRepository.deleteHeldBill(billId)
-    }
-
-    // --- CHECKOUT ---
-
-    fun openPaymentDialog() {
-        if (_uiState.value.cartItems.isNotEmpty()) {
-            _uiState.value = _uiState.value.copy(showPaymentDialog = true)
+            orderRepository.holdBill(
+                customer = cust,
+                note = note,
+                paidQty = paidMap,
+                pointUses = pointUses,
+                freeItems = freeItems,
+                existingBillId = state.heldBillId
+            )
+            clearCart()
         }
     }
 
-    fun setPaymentMethod(method: String) {
-        _uiState.value = _uiState.value.copy(selectedPaymentMethod = method)
+    fun resumeHeldBill(bill: HeldBill) {
+        viewModelScope.launch {
+            val allCustomers = customerRepository.customers.value
+            val cust = allCustomers.find { it.id == bill.customerId }
+                ?: Customer(id = bill.customerId, name = bill.customerName)
+            val allProducts = productRepository.products.value
+
+            val restored = allProducts.mapNotNull { p ->
+                val paid = bill.payload.paidQty[p.id.toString()] ?: 0
+                val free = bill.payload.freeItems.find { it.productId == p.id }?.qty ?: 0
+                val pts = bill.payload.pointUses.find { it.productId == p.id }?.points ?: 0
+                if (paid > 0 || free > 0) {
+                    CartItem(product = p, paidQty = paid, freeQty = free, pointsUsed = pts)
+                } else null
+            }
+
+            val balances = customerRepository.getCustomerPointBalances(cust.id).associate { it.productId to it.balance }
+            _uiState.value = _uiState.value.copy(
+                selectedCustomer = cust,
+                customerPointBalances = balances,
+                cartItems = restored,
+                heldBillId = bill.id,
+                showHeldBillsDialog = false
+            )
+            autoSaveDraft()
+        }
     }
 
+    fun deleteHeldBill(bill: HeldBill) {
+        viewModelScope.launch {
+            orderRepository.deleteHeldBill(bill.id, bill.version)
+        }
+    }
+
+    // --- CONFIRM SALE ---
     fun confirmSale() {
         val state = _uiState.value
+        val cust = state.selectedCustomer
+        if (cust == null) {
+            _uiState.value = state.copy(errorMessage = "กรุณาเลือกลูกค้าเข้าบิลก่อนคิดเงิน")
+            return
+        }
+
         viewModelScope.launch {
             _uiState.value = state.copy(isCheckingOut = true, errorMessage = null)
 
             val result = orderRepository.commitSale(
-                customer = state.selectedCustomer,
+                customer = cust,
                 cartItems = state.cartItems,
-                redeemedPoints = state.redeemedPoints,
-                paymentMethod = state.selectedPaymentMethod
+                heldBillId = state.heldBillId
             )
 
             _uiState.value = _uiState.value.copy(isCheckingOut = false)
@@ -254,30 +294,33 @@ class PosViewModel(
             if (result.isSuccess) {
                 val resp = result.getOrThrow()
                 _uiState.value = _uiState.value.copy(
-                    checkoutSuccessOrder = resp,
-                    showPaymentDialog = false,
+                    checkoutSuccess = resp,
                     cartItems = emptyList(),
                     selectedCustomer = null,
-                    redeemedPoints = 0
+                    customerPointBalances = emptyMap(),
+                    heldBillId = null
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = result.exceptionOrNull()?.message ?: "ชำระเงินไม่สำเร็จ"
+                    errorMessage = result.exceptionOrNull()?.message ?: "บันทึกการขายไม่สำเร็จ"
                 )
             }
         }
     }
 
     fun dismissSuccessDialog() {
-        _uiState.value = _uiState.value.copy(checkoutSuccessOrder = null)
+        _uiState.value = _uiState.value.copy(checkoutSuccess = null)
     }
 
-    // --- DIALOG TOGGLES ---
+    fun dismissErrorMessage() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
+    }
+
+    // Dialog toggles
     fun toggleCustomerPicker(show: Boolean) { _uiState.value = _uiState.value.copy(showCustomerPicker = show) }
-    fun toggleFreeItemsEditor(show: Boolean) { _uiState.value = _uiState.value.copy(showFreeItemsEditor = show) }
     fun togglePointsEditor(show: Boolean) { _uiState.value = _uiState.value.copy(showPointsEditor = show) }
+    fun toggleFreeItemsEditor(show: Boolean) { _uiState.value = _uiState.value.copy(showFreeItemsEditor = show) }
     fun toggleHeldBillsDialog(show: Boolean) { _uiState.value = _uiState.value.copy(showHeldBillsDialog = show) }
-    fun dismissPaymentDialog() { _uiState.value = _uiState.value.copy(showPaymentDialog = false) }
 
     class Factory : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

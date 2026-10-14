@@ -5,30 +5,40 @@ import com.sitticun.orderapp.data.local.OrderDatabaseHelper
 import com.sitticun.orderapp.data.local.PreferenceManager
 import com.sitticun.orderapp.data.model.*
 import com.sitticun.orderapp.util.DeviceIdProvider
-import com.sitticun.orderapp.util.Formatters
 import com.sitticun.orderapp.util.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
+
+@Serializable
+data class PosDraftState(
+    val customerId: String? = null,
+    val heldBillId: String? = null,
+    val paidQty: Map<String, Int> = emptyMap(),
+    val freeQty: Map<String, Int> = emptyMap(),
+    val pointsUsed: Map<String, Int> = emptyMap()
+)
 
 class OrderRepository(
     private val supabaseClient: SupabaseClient,
     private val dbHelper: OrderDatabaseHelper,
     private val preferenceManager: PreferenceManager,
-    private val productRepository: ProductRepository,
-    private val customerRepository: CustomerRepository,
     private val networkMonitor: NetworkMonitor,
     private val deviceIdProvider: DeviceIdProvider
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-    private val _orders = MutableStateFlow<List<OrderRecord>>(emptyList())
-    val orders: StateFlow<List<OrderRecord>> = _orders.asStateFlow()
+    private val _orders = MutableStateFlow<List<OrderSummary>>(emptyList())
+    val orders: StateFlow<List<OrderSummary>> = _orders.asStateFlow()
 
     private val _heldBills = MutableStateFlow<List<HeldBill>>(emptyList())
     val heldBills: StateFlow<List<HeldBill>> = _heldBills.asStateFlow()
@@ -38,250 +48,302 @@ class OrderRepository(
         _orders.value = dbHelper.getAllOrders()
     }
 
-    // --- DRAFT CART PERSISTENCE ---
-
-    fun saveDraftCart(items: List<CartItem>, customer: Customer?, redeemedPoints: Int) {
-        val draftMap = DraftState(
-            items = items,
-            customer = customer,
-            redeemedPoints = redeemedPoints
-        )
-        preferenceManager.draftCartJson = json.encodeToString(draftMap)
+    // -------------------------------------------------------------
+    // DRAFT CART PERSISTENCE
+    // -------------------------------------------------------------
+    fun saveDraft(draft: PosDraftState) {
+        preferenceManager.draftCartJson = json.encodeToString(draft)
     }
 
-    fun loadDraftCart(): DraftState? {
+    fun loadDraft(): PosDraftState? {
         val raw = preferenceManager.draftCartJson ?: return null
         return try {
-            json.decodeFromString<DraftState>(raw)
-        } catch (e: Exception) {
+            json.decodeFromString<PosDraftState>(raw)
+        } catch (_: Exception) {
             null
         }
     }
 
-    fun clearDraftCart() {
+    fun clearDraft() {
         preferenceManager.draftCartJson = null
     }
 
-    // --- HELD BILLS ---
-
-    fun holdCurrentBill(title: String, customer: Customer?, items: List<CartItem>, redeemedPoints: Int): HeldBill {
-        val billId = "held-" + UUID.randomUUID().toString()
-        val bill = HeldBill(
-            id = billId,
-            title = title.ifBlank { "บิล #${_heldBills.value.size + 1} (${customer?.name ?: "ทั่วไป"})" },
-            customer = customer,
-            items = items,
-            redeemedPoints = redeemedPoints,
-            createdAt = System.currentTimeMillis()
-        )
-        dbHelper.saveHeldBill(bill)
-        _heldBills.value = dbHelper.getAllHeldBills()
-        clearDraftCart()
-        return bill
-    }
-
-    fun deleteHeldBill(id: String) {
-        dbHelper.deleteHeldBill(id)
-        _heldBills.value = dbHelper.getAllHeldBills()
-    }
-
-    fun refreshHeldBills() {
-        _heldBills.value = dbHelper.getAllHeldBills()
-    }
-
-    // --- COMMIT SALE (POS CHECKOUT) ---
-
-    suspend fun commitSale(
-        customer: Customer?,
-        cartItems: List<CartItem>,
-        redeemedPoints: Int,
-        paymentMethod: String,
-        note: String? = null
-    ): Result<CommitSaleResponse> = withContext(Dispatchers.IO) {
-        if (cartItems.isEmpty()) {
-            return@withContext Result.failure(Exception("ตะกร้าสินค้าว่างเปล่า"))
+    // -------------------------------------------------------------
+    // HELD BILLS
+    // -------------------------------------------------------------
+    suspend fun loadHeldBills(): List<HeldBill> = withContext(Dispatchers.IO) {
+        val cached = dbHelper.getAllHeldBills()
+        if (cached.isNotEmpty()) {
+            _heldBills.value = cached
         }
 
-        val idempotencyKey = UUID.randomUUID().toString()
-        val deviceId = deviceIdProvider.getDeviceId()
-        val orderNumber = Formatters.generateOrderNumber()
+        if (networkMonitor.isOnline) {
+            val remote = supabaseClient.getHeldBills()
+            if (remote.isSuccess) {
+                val list = remote.getOrThrow()
+                dbHelper.saveHeldBills(list)
+                _heldBills.value = list
+                return@withContext list
+            }
+        }
+        _heldBills.value
+    }
 
-        // 1. Separate paid_qty and free_qty for each item
-        val payloadItems = cartItems.map { item ->
-            SaleItemPayload(
-                productId = item.product.id,
-                productName = item.product.name,
-                paidQty = item.paidQty,
-                freeQty = item.freeQty,
-                totalQty = item.totalQty, // total_qty = paid_qty + free_qty
-                unitPrice = item.product.price,
-                subtotal = item.subtotal // paid_qty * unit_price
+    suspend fun holdBill(
+        customer: Customer,
+        note: String?,
+        paidQty: Map<Long, Int>,
+        pointUses: List<PointUseInput>,
+        freeItems: List<FreeItemInput>,
+        existingBillId: String? = null,
+        expectedVersion: Long = 0L
+    ): Result<HeldBill> = withContext(Dispatchers.IO) {
+        val billId = existingBillId ?: ("HELD-" + UUID.randomUUID().toString())
+        val payload = HeldBillPayload(
+            paidQty = paidQty.mapKeys { it.key.toString() },
+            pointUses = pointUses,
+            freeItems = freeItems
+        )
+        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val heldBill = HeldBill(
+            id = billId,
+            customerId = customer.id,
+            customerName = customer.name,
+            note = note,
+            payload = payload,
+            updatedAt = isoNow,
+            version = if (expectedVersion > 0) expectedVersion + 1 else 1L
+        )
+
+        dbHelper.saveHeldBill(heldBill)
+        _heldBills.value = dbHelper.getAllHeldBills()
+        clearDraft()
+
+        if (networkMonitor.isOnline) {
+            val remoteResult = supabaseClient.saveHeldBill(heldBill, expectedVersion)
+            if (remoteResult.isSuccess) {
+                val newVer = remoteResult.getOrThrow()
+                val updatedBill = heldBill.copy(version = newVer)
+                dbHelper.saveHeldBill(updatedBill)
+                _heldBills.value = dbHelper.getAllHeldBills()
+                return@withContext Result.success(updatedBill)
+            }
+        }
+
+        Result.success(heldBill)
+    }
+
+    suspend fun deleteHeldBill(id: String, expectedVersion: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        dbHelper.deleteHeldBill(id)
+        _heldBills.value = dbHelper.getAllHeldBills()
+
+        if (networkMonitor.isOnline) {
+            return@withContext supabaseClient.deleteHeldBill(id, expectedVersion)
+        }
+        Result.success(Unit)
+    }
+
+    // -------------------------------------------------------------
+    // COMMIT SALE (POS CHECKOUT)
+    // -------------------------------------------------------------
+    suspend fun commitSale(
+        customer: Customer,
+        cartItems: List<CartItem>,
+        heldBillId: String? = null
+    ): Result<CloudSaleResult> = withContext(Dispatchers.IO) {
+        val paidItems = cartItems.filter { it.paidQty > 0 }
+        val freeItems = cartItems.filter { it.freeQty > 0 }
+        val pointUses = cartItems.filter { it.pointsUsed > 0 }
+
+        if (pointUses.isNotEmpty() && freeItems.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("การใช้แต้มต้องมีของแถม"))
+        }
+        if (freeItems.isNotEmpty() && pointUses.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("ของแถมต้องมีการใช้แต้ม"))
+        }
+        if (paidItems.isEmpty() && pointUses.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("ยังไม่ได้เลือกสินค้า หรือของแถม"))
+        }
+
+        val hasRedemptions = pointUses.isNotEmpty() || freeItems.isNotEmpty()
+        if (hasRedemptions && !networkMonitor.isOnline) {
+            return@withContext Result.failure(IllegalStateException("การแลกแต้มหรือของแถมต้องเชื่อมต่ออินเทอร์เน็ต"))
+        }
+
+        val orderUuid = UUID.randomUUID().toString()
+        val orderId = "ORD-$orderUuid"
+        val deviceId = deviceIdProvider.getDeviceId()
+        val idempotencyKey = "sale:$deviceId:$orderUuid"
+        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+
+        val cloudItems = paidItems.map {
+            OrderItemInput(
+                id = "$orderId:item:${it.product.id}",
+                productId = it.product.id,
+                qty = it.paidQty
+            )
+        }
+        val cloudPointUses = pointUses.map {
+            PointUseInput(
+                productId = it.product.id,
+                points = it.pointsUsed
+            )
+        }
+        val cloudFreeItems = freeItems.map {
+            FreeItemInput(
+                productId = it.product.id,
+                qty = it.freeQty
             )
         }
 
-        // 2. Calculations
-        val subtotal = cartItems.sumOf { it.subtotal }
-        val discountAmount = redeemedPoints.toDouble() // 1 point = 1 Baht discount
-        val totalAmount = (subtotal - discountAmount).coerceAtLeast(0.0)
-        // Earn 1 point per 20 Baht of paid amount
-        val earnedPoints = (totalAmount / 20.0).toInt()
-
-        val request = CommitSaleRequest(
-            idempotencyKey = idempotencyKey,
-            deviceId = deviceId,
-            customerId = customer?.id,
-            items = payloadItems,
-            subtotal = subtotal,
-            redeemedPoints = redeemedPoints,
-            discountAmount = discountAmount,
-            earnedPoints = earnedPoints,
-            totalAmount = totalAmount,
-            paymentMethod = paymentMethod,
-            note = note
+        val saleOrder = CloudSaleOrder(
+            id = orderId,
+            customerId = customer.id,
+            customerName = customer.name,
+            heldBillId = heldBillId,
+            items = cloudItems,
+            point_uses = cloudPointUses,
+            free_items = cloudFreeItems
         )
 
-        // 3. Optimistic local updates:
-        // Stock deduction based on total_qty = paid_qty + free_qty
-        for (item in cartItems) {
-            val stockDeduction = item.totalQty
-            productRepository.updateStockLocally(item.product.id, -stockDeduction)
-        }
+        val totalPaidQty = paidItems.sumOf { it.paidQty }
+        val totalAmount = paidItems.sumOf { it.paidQty * it.product.price }
 
-        // Customer points update: deduct redeemed, add earned
-        if (customer != null) {
-            val netPointsDelta = earnedPoints - redeemedPoints
-            customerRepository.updateCustomerPointsLocally(customer.id, netPointsDelta)
-        }
-
-        // Build Order Record and save to local database
-        val orderRecord = OrderRecord(
-            id = idempotencyKey,
-            orderNumber = orderNumber,
-            customerId = customer?.id,
-            customerName = customer?.name ?: "ลูกค้าทั่วไป (Walk-in)",
-            subtotal = subtotal,
-            redeemedPoints = redeemedPoints,
-            discountAmount = discountAmount,
-            earnedPoints = earnedPoints,
-            totalAmount = totalAmount,
-            paymentMethod = paymentMethod,
-            status = "COMPLETED",
-            deviceId = deviceId,
-            idempotencyKey = idempotencyKey,
-            createdAt = Formatters.getCurrentIsoTimestamp(),
-            items = payloadItems.map { p ->
+        // Local cache order
+        val localSummary = OrderSummary(
+            id = orderId,
+            customerId = customer.id,
+            customerName = customer.name,
+            createdAt = isoNow,
+            totalQty = totalPaidQty,
+            total = totalAmount,
+            status = "completed",
+            items = paidItems.map {
                 OrderItemRecord(
-                    id = "item-" + UUID.randomUUID().toString(),
-                    orderId = idempotencyKey,
-                    productId = p.productId,
-                    productName = p.productName,
-                    paidQty = p.paidQty,
-                    freeQty = p.freeQty,
-                    totalQty = p.totalQty,
-                    unitPrice = p.unitPrice,
-                    subtotal = p.subtotal
+                    id = "$orderId:item:${it.product.id}",
+                    orderId = orderId,
+                    productId = it.product.id,
+                    nameSnapshot = it.product.name,
+                    volumeSnapshot = it.product.volume,
+                    unitPrice = it.product.price,
+                    qty = it.paidQty,
+                    subtotal = it.paidQty * it.product.price
+                )
+            },
+            freeItems = freeItems.map {
+                OrderFreeItemRecord(
+                    id = "$orderId:free:${it.product.id}",
+                    orderId = orderId,
+                    productId = it.product.id,
+                    qty = it.freeQty
+                )
+            },
+            pointUses = pointUses.map {
+                OrderPointUseRecord(
+                    id = "$orderId:points:${it.product.id}",
+                    orderId = orderId,
+                    productId = it.product.id,
+                    points = it.pointsUsed
                 )
             }
         )
 
-        dbHelper.saveOrder(orderRecord)
-        _orders.value = dbHelper.getAllOrders()
-        clearDraftCart()
+        dbHelper.saveOrder(localSummary)
 
-        // 4. Send to Supabase RPC commit_sale if online
+        // Optimistically update local point balances
+        for (item in paidItems) {
+            dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
+        }
+        for (u in pointUses) {
+            dbHelper.updatePointBalance(customer.id, u.product.id, -u.pointsUsed)
+        }
+
+        if (heldBillId != null) {
+            dbHelper.deleteHeldBill(heldBillId)
+            _heldBills.value = dbHelper.getAllHeldBills()
+        }
+
+        _orders.value = dbHelper.getAllOrders()
+        clearDraft()
+
         if (networkMonitor.isOnline) {
-            val rpcResult = supabaseClient.commitSaleRpc(request)
-            if (rpcResult.isSuccess) {
-                return@withContext rpcResult
+            val remoteResult = supabaseClient.commitSale(saleOrder, idempotencyKey, deviceId)
+            if (remoteResult.isSuccess) {
+                val res = remoteResult.getOrThrow()
+                // Update local balances with authoritative balances from server
+                val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
+                    pIdStr.toLongOrNull()?.let { pId ->
+                        PointBalance(customerId = customer.id, productId = pId, balance = bal)
+                    }
+                }
+                if (balances.isNotEmpty()) {
+                    dbHelper.savePointBalances(customer.id, balances)
+                }
+                return@withContext Result.success(res)
             }
         }
 
-        // 5. Offline fallback: Save into Outbox with the idempotency_key
-        dbHelper.insertOutboxItem(
-            actionType = OutboxActionType.COMMIT_SALE,
+        // Queue in Outbox for offline sync (only valid for paid-only orders)
+        val payloadJson = json.encodeToString(
+            CommitSaleRpcPayload(order = saleOrder, idempotencyKey = idempotencyKey, deviceId = deviceId)
+        )
+        dbHelper.insertOutbox(
+            actionType = "commit_sale",
             idempotencyKey = idempotencyKey,
-            payloadJson = json.encodeToString(request)
+            payloadJson = payloadJson
         )
 
         Result.success(
-            CommitSaleResponse(
-                success = true,
-                orderId = idempotencyKey,
-                orderNumber = orderNumber,
-                message = "บันทึกการขายลงเครื่องเรียบร้อย (บันทึกเข้าคิวซิงค์ออฟไลน์)",
-                updatedCustomerPoints = customer?.let { it.pointsBalance - redeemedPoints + earnedPoints }
+            CloudSaleResult(
+                orderId = orderId,
+                total = totalAmount,
+                totalQty = totalPaidQty,
+                idempotentReplay = false
             )
         )
     }
 
-    // --- VOID ORDER ---
+    // -------------------------------------------------------------
+    // VOID ORDER (Admin Only)
+    // -------------------------------------------------------------
+    suspend fun voidOrder(orderId: String): Result<VoidOrderResult> = withContext(Dispatchers.IO) {
+        val target = _orders.value.find { it.id == orderId }
+            ?: return@withContext Result.failure(Exception("ไม่พบบิล"))
 
-    suspend fun voidSale(orderId: String, voidReason: String): Result<VoidSaleResponse> = withContext(Dispatchers.IO) {
-        if (voidReason.isBlank()) {
-            return@withContext Result.failure(Exception("จำเป็นต้องระบุเหตุผลในการยกเลิกบิล"))
+        if (target.isVoided) {
+            return@withContext Result.failure(Exception("บิลนี้ถูกยกเลิกแล้ว"))
         }
 
-        val allOrders = dbHelper.getAllOrders()
-        val targetOrder = allOrders.find { it.id == orderId }
-            ?: return@withContext Result.failure(Exception("ไม่พบบิลที่ต้องการยกเลิก"))
-
-        if (targetOrder.status == "VOIDED") {
-            return@withContext Result.failure(Exception("บิลนี้ถูกยกเลิกไปแล้ว"))
-        }
-
-        val idempotencyKey = "void-" + UUID.randomUUID().toString()
-        val deviceId = deviceIdProvider.getDeviceId()
-
-        val request = VoidSaleRequest(
-            orderId = orderId,
-            voidReason = voidReason.trim(),
-            deviceId = deviceId,
-            idempotencyKey = idempotencyKey
-        )
-
-        // 1. Optimistic Local Restoration:
-        // Restore stock: paid_qty + free_qty
-        for (item in targetOrder.items) {
-            productRepository.updateStockLocally(item.productId, item.totalQty)
-        }
-
-        // Restore customer points: return redeemed points, revoke earned points
-        if (!targetOrder.customerId.isNullOrBlank()) {
-            val netRefund = targetOrder.redeemedPoints - targetOrder.earnedPoints
-            customerRepository.updateCustomerPointsLocally(targetOrder.customerId, netRefund)
-        }
-
-        // Update local order status
-        val nowIso = Formatters.getCurrentIsoTimestamp()
-        dbHelper.updateOrderStatus(orderId, "VOIDED", voidReason.trim(), nowIso)
+        val idempotencyKey = "void:${target.id}"
+        dbHelper.markOrderVoided(orderId)
         _orders.value = dbHelper.getAllOrders()
 
-        // 2. Call RPC void_sale if online
         if (networkMonitor.isOnline) {
-            val remoteRes = supabaseClient.voidSaleRpc(request)
-            if (remoteRes.isSuccess) {
-                return@withContext remoteRes
+            val remoteResult = supabaseClient.voidOrder(orderId, idempotencyKey)
+            if (remoteResult.isSuccess) {
+                val res = remoteResult.getOrThrow()
+                val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
+                    pIdStr.toLongOrNull()?.let { pId ->
+                        PointBalance(customerId = target.customerId, productId = pId, balance = bal)
+                    }
+                }
+                if (balances.isNotEmpty()) {
+                    dbHelper.savePointBalances(target.customerId, balances)
+                }
+                return@withContext Result.success(res)
             }
         }
 
-        // 3. Queue in Outbox if offline
-        dbHelper.insertOutboxItem(
-            actionType = OutboxActionType.VOID_SALE,
-            idempotencyKey = idempotencyKey,
-            payloadJson = json.encodeToString(request)
-        )
-
         Result.success(
-            VoidSaleResponse(
-                success = true,
-                message = "ยกเลิกบิลและคืนสต็อก/แต้มเรียบร้อย (บันทึกเข้าคิวซิงค์ออฟไลน์)",
-                restoredStockItems = targetOrder.items.sumOf { it.totalQty },
-                restoredCustomerPoints = targetOrder.redeemedPoints
+            VoidOrderResult(
+                orderId = orderId,
+                status = "voided",
+                idempotentReplay = false
             )
         )
     }
 
-    suspend fun loadOrders(forceRefresh: Boolean = false): List<OrderRecord> = withContext(Dispatchers.IO) {
+    suspend fun loadOrders(forceRefresh: Boolean = false): List<OrderSummary> = withContext(Dispatchers.IO) {
         val cached = dbHelper.getAllOrders()
         if (cached.isNotEmpty()) {
             _orders.value = cached
@@ -291,9 +353,7 @@ class OrderRepository(
             val remoteRes = supabaseClient.getOrders()
             if (remoteRes.isSuccess) {
                 val list = remoteRes.getOrThrow()
-                for (o in list) {
-                    dbHelper.saveOrder(o)
-                }
+                dbHelper.saveOrders(list)
                 _orders.value = dbHelper.getAllOrders()
                 return@withContext _orders.value
             }
@@ -301,10 +361,3 @@ class OrderRepository(
         _orders.value
     }
 }
-
-@kotlinx.serialization.Serializable
-data class DraftState(
-    val items: List<CartItem>,
-    val customer: Customer? = null,
-    val redeemedPoints: Int = 0
-)

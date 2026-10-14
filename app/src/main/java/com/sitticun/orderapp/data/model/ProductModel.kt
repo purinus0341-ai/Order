@@ -5,37 +5,22 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class Product(
-    val id: String,
+    val id: Long,
     val name: String,
-    val sku: String = "",
-    val barcode: String = "",
-    val category: String = "ทั่วไป",
+    val tag: String? = null,
+    val volume: String? = null,
     val price: Double = 0.0,
-    val cost: Double = 0.0,
-    @SerialName("stock_qty") val stockQty: Int = 0,
-    @SerialName("min_stock_alert") val minStockAlert: Int = 5,
-    @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("is_active") val isActive: Boolean = true,
-    @SerialName("created_at") val createdAt: String? = null
-) {
-    val isLowStock: Boolean
-        get() = stockQty in 1..minStockAlert
-
-    val isOutOfStock: Boolean
-        get() = stockQty <= 0
-}
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
+)
 
 @Serializable
 data class ProductUpsertPayload(
-    val id: String? = null,
+    val id: Long? = null,
     val name: String,
-    val sku: String = "",
-    val barcode: String = "",
-    val category: String = "ทั่วไป",
+    val tag: String? = null,
+    val volume: String? = null,
     val price: Double = 0.0,
-    val cost: Double = 0.0,
-    @SerialName("stock_qty") val stockQty: Int = 0,
-    @SerialName("min_stock_alert") val minStockAlert: Int = 5,
-    @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("is_active") val isActive: Boolean = true
 )

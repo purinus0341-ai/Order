@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.sitticun.orderapp.OrderApplication
-import com.sitticun.orderapp.data.model.Product
+import com.sitticun.orderapp.data.model.ProductStockComparison
 import com.sitticun.orderapp.data.model.StockSnapshot
 import com.sitticun.orderapp.data.repository.ProductRepository
 import com.sitticun.orderapp.data.repository.StockRepository
@@ -14,13 +14,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class StockUiState(
-    val searchQuery: String = "",
-    val filterMode: String = "ทั้งหมด", // "ทั้งหมด", "สินค้าใกล้หมด", "สินค้าหมด"
-    val showAdjustDialog: Boolean = false,
-    val selectedProduct: Product? = null,
-    val isAdjusting: Boolean = false,
+    val comparisons: List<ProductStockComparison> = emptyList(),
+    val inputQuantities: Map<Long, String> = emptyMap(),
+    val note: String = "",
+    val isSaving: Boolean = false,
     val isSendingLineNotify: Boolean = false,
-    val lineNotifyResult: String? = null,
+    val lastSavedSnapshotId: String? = null,
     val message: String? = null,
     val errorMessage: String? = null
 )
@@ -33,7 +32,6 @@ class StockViewModel(
     private val _uiState = MutableStateFlow(StockUiState())
     val uiState: StateFlow<StockUiState> = _uiState.asStateFlow()
 
-    val products = productRepository.products
     val snapshots = stockRepository.snapshots
 
     init {
@@ -43,72 +41,95 @@ class StockViewModel(
     fun loadData() {
         viewModelScope.launch {
             productRepository.loadProducts()
+            stockRepository.loadSnapshots()
+            refreshComparisons()
         }
     }
 
-    fun onSearchQueryChange(query: String) {
-        _uiState.value = _uiState.value.copy(searchQuery = query)
+    private suspend fun refreshComparisons() {
+        val parsedInputs = _uiState.value.inputQuantities.mapNotNull { (pid, str) ->
+            str.toIntOrNull()?.let { pid to it }
+        }.toMap()
+
+        val list = stockRepository.getStockComparisons(parsedInputs)
+        val initialInputs = _uiState.value.inputQuantities.toMutableMap()
+        for (item in list) {
+            if (!initialInputs.containsKey(item.product.id)) {
+                initialInputs[item.product.id] = item.systemQty.toString()
+            }
+        }
+        _uiState.value = _uiState.value.copy(
+            comparisons = list,
+            inputQuantities = initialInputs
+        )
     }
 
-    fun onFilterModeChange(mode: String) {
-        _uiState.value = _uiState.value.copy(filterMode = mode)
+    fun onQuantityChange(productId: Long, text: String) {
+        val filtered = text.filter { it.isDigit() }
+        val updated = _uiState.value.inputQuantities.toMutableMap()
+        updated[productId] = filtered
+        _uiState.value = _uiState.value.copy(inputQuantities = updated)
+
+        viewModelScope.launch {
+            refreshComparisons()
+        }
     }
 
-    fun openAdjustDialog(product: Product) {
-        _uiState.value = _uiState.value.copy(showAdjustDialog = true, selectedProduct = product)
+    fun onNoteChange(text: String) {
+        _uiState.value = _uiState.value.copy(note = text)
     }
 
-    fun dismissAdjustDialog() {
-        _uiState.value = _uiState.value.copy(showAdjustDialog = false, selectedProduct = null)
-    }
+    fun saveSnapshot() {
+        val state = _uiState.value
+        val counts = mutableMapOf<Long, Int>()
 
-    fun adjustStock(newQty: Int, reason: String) {
-        val prod = _uiState.value.selectedProduct ?: return
-        if (reason.isBlank()) {
-            _uiState.value = _uiState.value.copy(errorMessage = "จำเป็นต้องระบุเหตุผลในการปรับสต็อก")
-            return
+        for (item in state.comparisons) {
+            val text = state.inputQuantities[item.product.id] ?: ""
+            val qty = text.toIntOrNull()
+            if (qty == null || qty < 0) {
+                _uiState.value = state.copy(errorMessage = "กรุณากรอกจำนวนของ ${item.product.name} ให้ถูกต้อง")
+                return
+            }
+            counts[item.product.id] = qty
         }
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isAdjusting = true, errorMessage = null)
-            val result = stockRepository.adjustStock(prod.id, newQty, reason.trim())
-            _uiState.value = _uiState.value.copy(isAdjusting = false)
+            _uiState.value = state.copy(isSaving = true, errorMessage = null)
+            val result = stockRepository.createSnapshot(counts, state.note)
+            _uiState.value = _uiState.value.copy(isSaving = false)
 
             if (result.isSuccess) {
+                val saved = result.getOrThrow()
                 _uiState.value = _uiState.value.copy(
-                    showAdjustDialog = false,
-                    selectedProduct = null,
-                    message = "บันทึกการปรับยอดสต็อกสำเร็จ (บันทึก Snapshot เรียบร้อย)"
+                    lastSavedSnapshotId = saved.id,
+                    message = "บันทึกสต็อกเรียบร้อยแล้ว (Snapshot: ${saved.id})",
+                    note = ""
                 )
+                refreshComparisons()
             } else {
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = result.exceptionOrNull()?.message ?: "ปรับสต็อกไม่สำเร็จ"
+                    errorMessage = result.exceptionOrNull()?.message ?: "บันทึกสต็อกไม่สำเร็จ"
                 )
             }
         }
     }
 
-    fun triggerLineNotify() {
+    fun sendLineNotify(snapshotId: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSendingLineNotify = true, errorMessage = null)
-            val result = stockRepository.sendLineStockNotification(lowStockOnly = true)
+            val res = stockRepository.sendLineStockNotification(snapshotId)
             _uiState.value = _uiState.value.copy(isSendingLineNotify = false)
 
-            if (result.isSuccess) {
-                val resp = result.getOrThrow()
+            if (res.isSuccess) {
                 _uiState.value = _uiState.value.copy(
-                    lineNotifyResult = "แจ้งเตือนผ่าน LINE เรียบร้อย: ${resp.message}"
+                    message = "ส่งรายงานสต็อกเข้า LINE เรียบร้อยแล้ว"
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
-                    lineNotifyResult = "ส่งแจ้งเตือน LINE ไม่สำเร็จ: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "ส่งแจ้งเตือน LINE ไม่สำเร็จ: ${res.exceptionOrNull()?.message}"
                 )
             }
         }
-    }
-
-    fun dismissLineDialog() {
-        _uiState.value = _uiState.value.copy(lineNotifyResult = null)
     }
 
     fun clearMessage() {

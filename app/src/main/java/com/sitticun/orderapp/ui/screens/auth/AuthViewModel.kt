@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class AuthUiState(
-    val email: String = "cashier@orderapp.local",
-    val password: String = "123456",
+    val email: String = "",
+    val password: String = "",
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isInactiveBlocked: Boolean = false,
@@ -25,7 +25,10 @@ class AuthViewModel(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
-        AuthUiState(userProfile = OrderApplication.instance.preferenceManager.userProfile)
+        AuthUiState(
+            email = authRepository.rememberedEmail,
+            userProfile = OrderApplication.instance.preferenceManager.userProfile
+        )
     )
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
@@ -75,10 +78,9 @@ class AuthViewModel(
     fun demoLogin(onSuccess: () -> Unit) {
         // Quick cashier demo login for testing & offline mode
         val demoProfile = UserProfile(
-            id = "demo-cashier-001",
-            email = "cashier@orderapp.local",
-            fullName = "แคชเชียร์ ประจำร้าน",
-            role = "cashier",
+            userId = "demo-staff-001",
+            role = "staff",
+            displayName = "พนักงานประจำร้าน",
             isActive = true
         )
         OrderApplication.instance.preferenceManager.userProfile = demoProfile

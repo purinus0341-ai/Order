@@ -5,13 +5,15 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class UserProfile(
-    val id: String,
-    val email: String? = null,
-    @SerialName("full_name") val fullName: String? = null,
-    val role: String = "cashier", // "admin", "cashier", "manager"
+    @SerialName("user_id") val userId: String,
+    val role: String = "staff", // "admin", "staff"
+    @SerialName("display_name") val displayName: String = "",
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("created_at") val createdAt: String? = null
-)
+) {
+    val isAdmin: Boolean
+        get() = role.equals("admin", ignoreCase = true)
+}
 
 @Serializable
 data class AuthSession(

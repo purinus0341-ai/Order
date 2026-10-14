@@ -79,13 +79,13 @@ class AdminViewModel(
     fun loadUsers() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoadingUsers = true)
-            val result = supabaseClient.getAllUsers()
+            val result = supabaseClient.listProfilesAdmin()
             _uiState.value = _uiState.value.copy(isLoadingUsers = false)
 
             if (result.isSuccess) {
                 _uiState.value = _uiState.value.copy(usersList = result.getOrThrow())
             } else {
-                // Fallback to local user
+                // Fallback to local profile
                 val localUser = OrderApplication.instance.preferenceManager.userProfile
                 if (localUser != null) {
                     _uiState.value = _uiState.value.copy(usersList = listOf(localUser))
@@ -97,14 +97,14 @@ class AdminViewModel(
     fun toggleUserActive(user: UserProfile) {
         val newStatus = !user.isActive
         viewModelScope.launch {
-            val res = supabaseClient.updateUserActiveStatus(user.id, newStatus)
+            val res = supabaseClient.updateUserActiveStatus(user.userId, newStatus)
             if (res.isSuccess) {
                 val updated = _uiState.value.usersList.map {
-                    if (it.id == user.id) it.copy(isActive = newStatus) else it
+                    if (it.userId == user.userId) it.copy(isActive = newStatus) else it
                 }
                 _uiState.value = _uiState.value.copy(
                     usersList = updated,
-                    message = "อัปเดตสถานะผู้ใช้ ${user.fullName ?: user.email} เป็น ${if (newStatus) "เปิดใช้งาน" else "ระงับสิทธิ์"} แล้ว"
+                    message = "อัปเดตสถานะผู้ใช้ ${user.displayName.ifBlank { user.userId }} เป็น ${if (newStatus) "เปิดใช้งาน" else "ระงับสิทธิ์"} แล้ว"
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
@@ -131,7 +131,30 @@ class AdminViewModel(
     fun saveProduct(payload: ProductUpsertPayload) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSavingProduct = true, errorMessage = null)
-            val result = productRepository.saveProduct(payload)
+            val result = if (payload.id != null && payload.id > 0) {
+                productRepository.updateProduct(
+                    Product(
+                        id = payload.id,
+                        name = payload.name,
+                        tag = payload.tag,
+                        volume = payload.volume,
+                        price = payload.price,
+                        isActive = payload.isActive
+                    )
+                )
+            } else {
+                val newId = System.currentTimeMillis()
+                productRepository.createProduct(
+                    Product(
+                        id = newId,
+                        name = payload.name,
+                        tag = payload.tag,
+                        volume = payload.volume,
+                        price = payload.price,
+                        isActive = payload.isActive
+                    )
+                )
+            }
             _uiState.value = _uiState.value.copy(isSavingProduct = false)
 
             if (result.isSuccess) {
@@ -149,20 +172,16 @@ class AdminViewModel(
     }
 
     fun toggleProductActive(product: Product) {
-        val payload = ProductUpsertPayload(
-            id = product.id,
-            name = product.name,
-            sku = product.sku,
-            barcode = product.barcode,
-            category = product.category,
-            price = product.price,
-            cost = product.cost,
-            stockQty = product.stockQty,
-            minStockAlert = product.minStockAlert,
-            imageUrl = product.imageUrl,
-            isActive = !product.isActive
+        saveProduct(
+            ProductUpsertPayload(
+                id = product.id,
+                name = product.name,
+                tag = product.tag,
+                volume = product.volume,
+                price = product.price,
+                isActive = !product.isActive
+            )
         )
-        saveProduct(payload)
     }
 
     // --- APP UPDATE CHECKER ---

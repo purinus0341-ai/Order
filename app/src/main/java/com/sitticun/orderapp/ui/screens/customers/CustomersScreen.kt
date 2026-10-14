@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sitticun.orderapp.data.model.Customer
+import com.sitticun.orderapp.data.model.OrderSummary
+import com.sitticun.orderapp.data.model.PointBalance
 import com.sitticun.orderapp.ui.components.OrderStatusBadge
 import com.sitticun.orderapp.ui.theme.*
 import com.sitticun.orderapp.util.Formatters
@@ -37,35 +39,22 @@ fun CustomersScreen(
         if (state.searchQuery.isBlank()) customers
         else {
             customers.filter {
-                it.name.contains(state.searchQuery, ignoreCase = true) ||
-                        it.phone.contains(state.searchQuery, ignoreCase = true)
+                it.name.contains(state.searchQuery, ignoreCase = true)
             }
         }
     }
 
-    // Add / Edit Customer Dialog
-    if (state.showUpsertDialog) {
-        CustomerUpsertDialog(
-            customer = state.customerToEdit,
+    // Add Customer Dialog
+    if (state.showAddDialog) {
+        AddCustomerDialog(
             isSaving = state.isSaving,
-            onSave = { name, phone, email, notes -> viewModel.saveCustomer(name, phone, email, notes) },
-            onDismiss = { viewModel.dismissUpsertDialog() }
+            onSave = { name -> viewModel.createCustomer(name) },
+            onDismiss = { viewModel.dismissAddDialog() }
         )
     }
 
-    // Adjust Points Dialog
-    if (state.showPointsDialog && state.selectedCustomer != null) {
-        AdjustPointsDialog(
-            customer = state.selectedCustomer!!,
-            isSaving = state.isSaving,
-            onConfirm = { points, reason -> viewModel.adjustPoints(points, reason) },
-            onDismiss = { viewModel.dismissPointsDialog() }
-        )
-    }
-
-    // Toast-like Snackbar/Alert for messages
+    // Snackbar / Alert for messages
     if (state.message != null || state.errorMessage != null) {
-        val isErr = state.errorMessage != null
         LaunchedEffect(state.message, state.errorMessage) {
             kotlinx.coroutines.delay(3000)
             viewModel.clearMessage()
@@ -106,7 +95,7 @@ fun CustomersScreen(
                     OutlinedTextField(
                         value = state.searchQuery,
                         onValueChange = { viewModel.onSearchQueryChange(it) },
-                        placeholder = { Text("ค้นหาชื่อลูกค้า หรือ เบอร์โทรศัพท์...", fontSize = 13.sp) },
+                        placeholder = { Text("ค้นหาชื่อลูกค้า...", fontSize = 13.sp) },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = PastelMint) },
                         trailingIcon = {
                             if (state.searchQuery.isNotBlank()) {
@@ -174,21 +163,20 @@ fun CustomersScreen(
 
                 if (isWide) {
                     Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Box(modifier = Modifier.weight(0.55f)) {
+                        Box(modifier = Modifier.weight(0.5f)) {
                             CustomerList(
                                 customers = filteredCustomers,
                                 selectedCustomerId = state.selectedCustomer?.id,
-                                onSelect = { viewModel.selectCustomer(it) },
-                                onEdit = { viewModel.openEditCustomer(it) },
-                                onAdjustPoints = { viewModel.openAdjustPoints(it) }
+                                onSelect = { viewModel.selectCustomer(it) }
                             )
                         }
 
-                        Box(modifier = Modifier.weight(0.45f)) {
+                        Box(modifier = Modifier.weight(0.5f)) {
                             CustomerDetailPane(
                                 customer = state.selectedCustomer,
+                                pointBalances = state.pointBalances,
                                 orders = state.customerOrders,
-                                onAdjustPoints = { state.selectedCustomer?.let { viewModel.openAdjustPoints(it) } }
+                                getProductName = { viewModel.getProductName(it) }
                             )
                         }
                     }
@@ -196,10 +184,40 @@ fun CustomersScreen(
                     CustomerList(
                         customers = filteredCustomers,
                         selectedCustomerId = state.selectedCustomer?.id,
-                        onSelect = { viewModel.selectCustomer(it) },
-                        onEdit = { viewModel.openEditCustomer(it) },
-                        onAdjustPoints = { viewModel.openAdjustPoints(it) }
+                        onSelect = { viewModel.selectCustomer(it) }
                     )
+                }
+            }
+        }
+    }
+
+    // Modal detail for narrow screens
+    if (state.selectedCustomer != null && androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 760) {
+        val cust = state.selectedCustomer!!
+        Dialog(onDismissRequest = { viewModel.selectCustomer(null) }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = CardWhite),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 580.dp)
+                    .padding(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    CustomerDetailPane(
+                        customer = cust,
+                        pointBalances = state.pointBalances,
+                        orders = state.customerOrders,
+                        getProductName = { viewModel.getProductName(it) }
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { viewModel.selectCustomer(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("ปิด")
+                    }
                 }
             }
         }
@@ -210,9 +228,7 @@ fun CustomersScreen(
 private fun CustomerList(
     customers: List<Customer>,
     selectedCustomerId: String?,
-    onSelect: (Customer) -> Unit,
-    onEdit: (Customer) -> Unit,
-    onAdjustPoints: (Customer) -> Unit
+    onSelect: (Customer) -> Unit
 ) {
     if (customers.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -265,47 +281,18 @@ private fun CustomerList(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = customer.phone.ifBlank { "ไม่มีเบอร์โทร" },
-                                    fontSize = 12.sp,
+                                    text = "ID: ${customer.id.take(12)}",
+                                    fontSize = 11.sp,
                                     color = TextSecondary
                                 )
-                                if (!customer.notes.isNullOrBlank()) {
-                                    Text(
-                                        text = customer.notes,
-                                        fontSize = 11.sp,
-                                        color = TextMuted,
-                                        maxLines = 1
-                                    )
-                                }
                             }
                         }
 
-                        // Points Badge & Actions
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = PastelPeachLight,
-                                modifier = Modifier.clickable { onAdjustPoints(customer) }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Stars, contentDescription = null, tint = PastelPeach, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = Formatters.formatPoints(customer.pointsBalance),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = PastelPeachDark
-                                    )
-                                }
-                            }
-
-                            IconButton(onClick = { onEdit(customer) }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Edit, contentDescription = "แก้ไข", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                            }
-                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = TextMuted
+                        )
                     }
                 }
             }
@@ -316,8 +303,9 @@ private fun CustomerList(
 @Composable
 private fun CustomerDetailPane(
     customer: Customer?,
-    orders: List<com.sitticun.orderapp.data.model.OrderRecord>,
-    onAdjustPoints: () -> Unit
+    pointBalances: List<PointBalance>,
+    orders: List<OrderSummary>,
+    getProductName: (Long) -> String
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -326,10 +314,11 @@ private fun CustomerDetailPane(
     ) {
         if (customer == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "เลือกข้อมูลลูกค้าเพื่อดูประวัติการซื้อ", color = TextSecondary, fontSize = 14.sp)
+                Text(text = "เลือกข้อมูลลูกค้าเพื่อดูแต้มสะสมและประวัติ", color = TextSecondary, fontSize = 14.sp)
             }
         } else {
             Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -337,23 +326,86 @@ private fun CustomerDetailPane(
                 ) {
                     Column {
                         Text(text = customer.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(text = customer.phone, fontSize = 13.sp, color = TextSecondary)
+                        Text(text = "รหัสสมาชิก: ${customer.id}", fontSize = 11.sp, color = TextSecondary)
                     }
+                }
 
-                    Button(
-                        onClick = onAdjustPoints,
-                        colors = ButtonDefaults.buttonColors(containerColor = PastelPeach),
-                        shape = RoundedCornerShape(10.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Point Balances per product
+                Text(
+                    text = "แต้มสะสมแยกตามสินค้า (1 ชิ้นที่ซื้อ = 1 แต้ม)",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (pointBalances.isEmpty()) {
+                    Text(
+                        text = "ยังไม่มีแต้มสะสม",
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("ปรับยอดแต้ม", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        pointBalances.forEach { pb ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = PastelPeachLight,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = getProductName(pb.productId),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextPrimary,
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Stars,
+                                            contentDescription = null,
+                                            tint = PastelPeach,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${pb.balance}",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PastelPeachDark
+                                        )
+                                        Text(
+                                            text = " แต้ม",
+                                            fontSize = 11.sp,
+                                            color = PastelPeachDark
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-                Divider(color = BorderLight, thickness = 0.8.dp)
-                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Text(text = "ประวัติการสั่งซื้อ (${orders.size} ครั้ง)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                Text(
+                    text = "ประวัติการสั่งซื้อ (${orders.size} ครั้ง)",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
                 Spacer(modifier = Modifier.height(8.dp))
 
                 if (orders.isEmpty()) {
@@ -376,17 +428,17 @@ private fun CustomerDetailPane(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text(text = ord.orderNumber, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(text = "บิล #${ord.id.take(8)}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         Text(text = Formatters.formatIsoDateTime(ord.createdAt), fontSize = 11.sp, color = TextMuted)
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text(
-                                            text = Formatters.formatCurrency(ord.totalAmount),
+                                            text = Formatters.formatCurrency(ord.total),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp,
                                             color = PastelPeach
                                         )
-                                        OrderStatusBadge(status = ord.status)
+                                        OrderStatusBadge(status = if (ord.isVoided) "VOIDED" else "COMPLETED")
                                     }
                                 }
                             }
@@ -399,16 +451,12 @@ private fun CustomerDetailPane(
 }
 
 @Composable
-fun CustomerUpsertDialog(
-    customer: Customer?,
+fun AddCustomerDialog(
     isSaving: Boolean,
-    onSave: (name: String, phone: String, email: String?, notes: String?) -> Unit,
+    onSave: (name: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by remember { mutableStateOf(customer?.name ?: "") }
-    var phone by remember { mutableStateOf(customer?.phone ?: "") }
-    var email by remember { mutableStateOf(customer?.email ?: "") }
-    var notes by remember { mutableStateOf(customer?.notes ?: "") }
+    var name by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -418,7 +466,7 @@ fun CustomerUpsertDialog(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = if (customer == null) "เพิ่มสมาชิกใหม่" else "แก้ไขข้อมูลสมาชิก",
+                    text = "เพิ่มสมาชิกลูกค้าใหม่",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -429,40 +477,9 @@ fun CustomerUpsertDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("ชื่อ-นามสกุล *") },
+                    label = { Text("ชื่อลูกค้า *") },
+                    placeholder = { Text("เช่น สมชาย หรือ ร้านค้า A") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("เบอร์โทรศัพท์") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("อีเมล (ถ้ามี)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("บันทึกเพิ่มเติม") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
@@ -475,7 +492,7 @@ fun CustomerUpsertDialog(
                     }
                     Button(
                         onClick = {
-                            if (name.isNotBlank()) onSave(name, phone, email, notes)
+                            if (name.isNotBlank()) onSave(name)
                         },
                         enabled = name.isNotBlank() && !isSaving,
                         modifier = Modifier.weight(1f),
@@ -483,118 +500,7 @@ fun CustomerUpsertDialog(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         if (isSaving) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("บันทึก", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AdjustPointsDialog(
-    customer: Customer,
-    isSaving: Boolean,
-    onConfirm: (pointsChange: Int, reason: String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var isAddition by remember { mutableStateOf(true) }
-    var pointsText by remember { mutableStateOf("50") }
-    var reason by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = CardWhite),
-            modifier = Modifier.fillMaxWidth().padding(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(text = "ปรับปรุงแต้มสะสม", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(text = "ลูกค้า: ${customer.name} (คงเหลือ: ${customer.pointsBalance} แต้ม)", fontSize = 13.sp, color = TextSecondary)
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Toggle Add vs Deduct
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { isAddition = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isAddition) PastelMint else SurfaceVariantColor),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("เพิ่มแต้ม (+)", color = if (isAddition) Color.White else TextPrimary)
-                    }
-
-                    Button(
-                        onClick = { isAddition = false },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (!isAddition) PastelPeach else SurfaceVariantColor),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("หักแต้ม (-)", color = if (!isAddition) Color.White else TextPrimary)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                OutlinedTextField(
-                    value = pointsText,
-                    onValueChange = { pointsText = it.filter { char -> char.isDigit() } },
-                    label = { Text("จำนวนแต้ม") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = reason,
-                    onValueChange = {
-                        reason = it
-                        error = null
-                    },
-                    label = { Text("ระบุเหตุผล (บังคับ) *") },
-                    placeholder = { Text("เช่น ของขวัญวันเกิด, ชดเชยสินค้า...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    isError = error != null
-                )
-
-                if (error != null) {
-                    Text(text = error!!, color = StatusDanger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
-                        Text("ยกเลิก")
-                    }
-
-                    Button(
-                        onClick = {
-                            val pts = pointsText.toIntOrNull() ?: 0
-                            if (pts <= 0) {
-                                error = "กรุณาระบุจำนวนแต้มที่ถูกต้อง"
-                                return@Button
-                            }
-                            if (reason.isBlank()) {
-                                error = "จำเป็นต้องระบุเหตุผลในการปรับปรุงแต้ม"
-                                return@Button
-                            }
-                            val change = if (isAddition) pts else -pts
-                            onConfirm(change, reason)
-                        },
-                        enabled = !isSaving,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isAddition) PastelMint else PastelPeach)
-                    ) {
-                        if (isSaving) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("ยืนยัน", fontWeight = FontWeight.Bold, color = Color.White)
+                        else Text("บันทึก", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }

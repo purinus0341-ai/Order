@@ -94,7 +94,7 @@ fun UserAdminScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(users, key = { it.id }) { user ->
+                items(users, key = { it.userId }) { user ->
                     UserCard(user = user, onToggle = { onToggleActive(user) })
                 }
             }
@@ -125,11 +125,11 @@ private fun UserCard(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(if (user.role == "admin") PastelPeach else PastelMint),
+                        .background(if (user.isAdmin) PastelPeach else PastelMint),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (user.role == "admin") Icons.Default.AdminPanelSettings else Icons.Default.Person,
+                        imageVector = if (user.isAdmin) Icons.Default.AdminPanelSettings else Icons.Default.Person,
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
@@ -141,7 +141,7 @@ private fun UserCard(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = user.fullName ?: user.email ?: "ผู้ใช้งาน",
+                            text = user.displayName.ifBlank { "User" },
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = TextPrimary
@@ -149,21 +149,21 @@ private fun UserCard(
 
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = if (user.role == "admin") PastelPeachLight else PastelMintLight
+                            color = if (user.isAdmin) PastelPeachLight else PastelMintLight
                         ) {
                             Text(
                                 text = user.role.uppercase(),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (user.role == "admin") PastelPeachDark else PastelMintDark,
+                                color = if (user.isAdmin) PastelPeachDark else PastelMintDark,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                     }
 
                     Text(
-                        text = user.email ?: "-",
-                        fontSize = 12.sp,
+                        text = "User ID: ${user.userId}",
+                        fontSize = 11.sp,
                         color = TextSecondary
                     )
 

@@ -27,7 +27,7 @@ import com.sitticun.orderapp.ui.theme.*
 @Composable
 fun FreeItemsEditorDialog(
     cartItems: List<CartItem>,
-    onUpdateFreeQty: (productId: String, delta: Int) -> Unit,
+    onUpdateFreeQty: (productId: Long, delta: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -40,7 +40,6 @@ fun FreeItemsEditorDialog(
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -82,7 +81,7 @@ fun FreeItemsEditorDialog(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-                Divider(color = BorderLight, thickness = 0.8.dp)
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                 Spacer(modifier = Modifier.height(12.dp))
 
                 if (cartItems.isEmpty()) {
@@ -128,13 +127,13 @@ fun FreeItemsEditorDialog(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
-                                                text = "คิดเงิน: ${item.paidQty} ชิ้น",
+                                                text = "คิดเงิน: ${item.paidQty} ขวด",
                                                 fontSize = 12.sp,
                                                 color = TextSecondary
                                             )
                                             Text(text = "•", color = TextMuted)
                                             Text(
-                                                text = "ตัดสต็อกรวม: ${item.totalQty} ชิ้น",
+                                                text = "ตัดสต็อก: ${item.totalQty} ขวด",
                                                 fontSize = 12.sp,
                                                 color = PastelMintDark,
                                                 fontWeight = FontWeight.Medium
@@ -142,7 +141,6 @@ fun FreeItemsEditorDialog(
                                         }
                                     }
 
-                                    // Free Qty Stepper
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)

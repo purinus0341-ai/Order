@@ -11,6 +11,7 @@ class PreferenceManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Memory session token or ephemeral preference token
     var accessToken: String?
         get() = prefs.getString(KEY_ACCESS_TOKEN, null)
         set(value) = prefs.edit().putString(KEY_ACCESS_TOKEN, value).apply()
@@ -22,6 +23,10 @@ class PreferenceManager(context: Context) {
     var tokenExpiresAt: Long
         get() = prefs.getLong(KEY_TOKEN_EXPIRES_AT, 0L)
         set(value) = prefs.edit().putLong(KEY_TOKEN_EXPIRES_AT, value).apply()
+
+    var rememberedEmail: String?
+        get() = prefs.getString(KEY_REMEMBERED_EMAIL, null)
+        set(value) = prefs.edit().putString(KEY_REMEMBERED_EMAIL, value).apply()
 
     var userProfile: UserProfile?
         get() {
@@ -57,6 +62,10 @@ class PreferenceManager(context: Context) {
         get() = prefs.getString(KEY_DRAFT_CART, null)
         set(value) = prefs.edit().putString(KEY_DRAFT_CART, value).apply()
 
+    var draftStockJson: String?
+        get() = prefs.getString(KEY_DRAFT_STOCK, null)
+        set(value) = prefs.edit().putString(KEY_DRAFT_STOCK, value).apply()
+
     fun clearSession() {
         prefs.edit()
             .remove(KEY_ACCESS_TOKEN)
@@ -71,8 +80,10 @@ class PreferenceManager(context: Context) {
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_TOKEN_EXPIRES_AT = "token_expires_at"
+        private const val KEY_REMEMBERED_EMAIL = "remembered_email"
         private const val KEY_USER_PROFILE = "user_profile"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_DRAFT_CART = "draft_cart"
+        private const val KEY_DRAFT_STOCK = "draft_stock"
     }
 }

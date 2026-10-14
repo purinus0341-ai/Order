@@ -206,7 +206,7 @@ fun AboutAppScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                Divider(color = BorderLight, thickness = 0.8.dp)
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(

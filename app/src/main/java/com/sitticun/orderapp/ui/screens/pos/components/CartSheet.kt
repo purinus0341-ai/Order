@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -28,17 +27,14 @@ import com.sitticun.orderapp.util.Formatters
 fun CartSheet(
     cartItems: List<CartItem>,
     customer: Customer?,
-    redeemedPoints: Int,
+    pointBalances: Map<Long, Long>,
     subtotal: Double,
-    discountAmount: Double,
     totalPayable: Double,
-    earnedPoints: Int,
     totalStockDeduction: Int,
-    onUpdatePaidQty: (productId: String, delta: Int) -> Unit,
-    onUpdateFreeQty: (productId: String, delta: Int) -> Unit,
-    onRemoveItem: (productId: String) -> Unit,
+    onUpdatePaidQty: (productId: Long, delta: Int) -> Unit,
+    onUpdateFreeQty: (productId: Long, delta: Int) -> Unit,
+    onRemoveItem: (productId: Long) -> Unit,
     onOpenCustomerPicker: () -> Unit,
-    onOpenFreeItemsEditor: () -> Unit,
     onOpenPointsEditor: () -> Unit,
     onHoldBill: () -> Unit,
     onClearCart: () -> Unit,
@@ -62,10 +58,10 @@ fun CartSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Customer Pill
+                    // Customer Pill (Mandatory)
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = CardWhite,
+                        color = if (customer != null) PastelMintLight else PastelPeachLight,
                         modifier = Modifier.clickable(onClick = onOpenCustomerPicker)
                     ) {
                         Row(
@@ -75,41 +71,32 @@ fun CartSheet(
                             Icon(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = null,
-                                tint = if (customer != null) PastelLavender else TextMuted,
+                                tint = if (customer != null) PastelMintDark else PastelPeachDark,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = customer?.name ?: "เลือกลูกค้า",
+                                text = customer?.name ?: "เลือกลูกค้า (จำเป็น)",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (customer != null) TextPrimary else TextSecondary
+                                color = if (customer != null) TextPrimary else PastelPeachDark
                             )
-                            if (customer != null) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "(${customer.pointsBalance} แต้ม)",
-                                    fontSize = 11.sp,
-                                    color = PastelPeachDark,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
                         }
                     }
 
-                    // Hold Bill & Clear Cart Actions
+                    // Actions
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         IconButton(
-                            onClick = onOpenFreeItemsEditor,
-                            enabled = cartItems.isNotEmpty(),
+                            onClick = onOpenPointsEditor,
+                            enabled = cartItems.isNotEmpty() && customer != null,
                             modifier = Modifier.size(34.dp)
                         ) {
-                            Icon(Icons.Default.CardGiftcard, contentDescription = "ของแถม", tint = PastelPeach)
+                            Icon(Icons.Default.Stars, contentDescription = "แต้ม & ของแถม", tint = PastelPeach)
                         }
 
                         IconButton(
                             onClick = onHoldBill,
-                            enabled = cartItems.isNotEmpty(),
+                            enabled = cartItems.isNotEmpty() && customer != null,
                             modifier = Modifier.size(34.dp)
                         ) {
                             Icon(Icons.Default.PauseCircle, contentDescription = "พักบิล", tint = PastelLavender)
@@ -148,7 +135,7 @@ fun CartSheet(
                             color = TextSecondary
                         )
                         Text(
-                            text = "แตะเลือกสินค้าจากฝั่งซ้ายเพื่อเริ่มขาย",
+                            text = "แตะเลือกสินค้าจากด้านบนเพื่อเริ่มขาย",
                             fontSize = 12.sp,
                             color = TextMuted
                         )
@@ -163,8 +150,10 @@ fun CartSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(cartItems, key = { it.product.id }) { item ->
+                        val balance = pointBalances[item.product.id] ?: 0L
                         CartItemRow(
                             item = item,
+                            balance = balance,
                             onUpdatePaid = { delta -> onUpdatePaidQty(item.product.id, delta) },
                             onUpdateFree = { delta -> onUpdateFreeQty(item.product.id, delta) },
                             onRemove = { onRemoveItem(item.product.id) }
@@ -173,7 +162,7 @@ fun CartSheet(
                 }
             }
 
-            Divider(color = BorderLight, thickness = 1.dp)
+            HorizontalDivider(color = BorderLight, thickness = 1.dp)
 
             // Calculation Breakdown Footer
             Column(
@@ -182,13 +171,13 @@ fun CartSheet(
                     .background(PastelBackground)
                     .padding(14.dp)
             ) {
-                // Paid & Free Summary
+                // Paid summary
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "ยอดรวมสินค้า (${cartItems.sumOf { it.paidQty }} ชิ้น)",
+                        text = "สินค้าคิดเงิน (${cartItems.sumOf { it.paidQty }} ชิ้น)",
                         fontSize = 13.sp,
                         color = TextSecondary
                     )
@@ -200,7 +189,9 @@ fun CartSheet(
                     )
                 }
 
-                if (cartItems.any { it.freeQty > 0 }) {
+                // Free items summary
+                val totalFree = cartItems.sumOf { it.freeQty }
+                if (totalFree > 0) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -210,13 +201,13 @@ fun CartSheet(
                             FreeBadge()
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "ของแถม (${cartItems.sumOf { it.freeQty }} ชิ้น)",
+                                text = "ของแถมแลกแต้ม ($totalFree ชิ้น)",
                                 fontSize = 12.sp,
                                 color = TextSecondary
                             )
                         }
                         Text(
-                            text = "฿0.00",
+                            text = "ใช้ ${cartItems.sumOf { it.pointsUsed }} แต้ม",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = PastelPeachDark
@@ -224,49 +215,20 @@ fun CartSheet(
                     }
                 }
 
-                // Points discount
-                if (customer != null || redeemedPoints > 0) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onOpenPointsEditor),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Stars, contentDescription = null, tint = PastelPeach, modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (redeemedPoints > 0) "ส่วนลดแต้มสะสม ($redeemedPoints แต้ม)" else "ใช้แต้มสะสมลดราคา",
-                                fontSize = 12.sp,
-                                color = if (redeemedPoints > 0) StatusSuccess else PastelLavender,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        Text(
-                            text = if (redeemedPoints > 0) "-${Formatters.formatCurrency(discountAmount)}" else "เลือกแต้ม >",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (redeemedPoints > 0) StatusSuccess else PastelLavender
-                        )
-                    }
-                }
-
-                // Earned points preview
-                if (customer != null && earnedPoints > 0) {
+                // Earned points preview (1 paid qty = 1 point per product)
+                if (customer != null && cartItems.any { it.paidQty > 0 }) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "แต้มที่จะได้รับเพิ่ม",
+                            text = "แต้มที่จะได้รับ (1 ชิ้น = 1 แต้ม)",
                             fontSize = 11.sp,
                             color = TextMuted
                         )
                         Text(
-                            text = "+$earnedPoints แต้ม",
+                            text = "+${cartItems.sumOf { it.paidQty }} แต้ม",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = PastelMintDark
@@ -275,7 +237,7 @@ fun CartSheet(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Divider(color = BorderLight, thickness = 0.8.dp)
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Net Total Row
@@ -286,7 +248,7 @@ fun CartSheet(
                 ) {
                     Column {
                         Text(
-                            text = "ยอดสุทธิ",
+                            text = "ยอดรวมสุทธิ",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
@@ -310,7 +272,7 @@ fun CartSheet(
                 // Checkout Button
                 Button(
                     onClick = onCheckout,
-                    enabled = cartItems.isNotEmpty(),
+                    enabled = cartItems.isNotEmpty() && customer != null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -320,11 +282,11 @@ fun CartSheet(
                         contentColor = Color.White
                     )
                 ) {
-                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "ชำระเงิน (${Formatters.formatCurrency(totalPayable)})",
-                        fontSize = 16.sp,
+                        text = if (customer == null) "กรุณาเลือกลูกค้าก่อนคิดเงิน" else "บันทึกการขาย (${Formatters.formatCurrency(totalPayable)})",
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -336,6 +298,7 @@ fun CartSheet(
 @Composable
 private fun CartItemRow(
     item: CartItem,
+    balance: Long,
     onUpdatePaid: (Int) -> Unit,
     onUpdateFree: (Int) -> Unit,
     onRemove: () -> Unit
@@ -347,7 +310,6 @@ private fun CartItemRow(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
-            // Item Title & Remove
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -367,18 +329,17 @@ private fun CartItemRow(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Paid Qty & Free Qty Steppers
+            // Paid quantity stepper & price
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Paid quantity stepper
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(text = "คิดเงิน:", fontSize = 11.sp, color = TextSecondary)
+                    Text(text = "ซื้อ:", fontSize = 11.sp, color = TextSecondary)
                     IconButton(onClick = { onUpdatePaid(-1) }, modifier = Modifier.size(26.dp)) {
                         Icon(Icons.Default.Remove, contentDescription = "ลด", tint = PastelMint, modifier = Modifier.size(14.dp))
                     }
@@ -393,7 +354,6 @@ private fun CartItemRow(
                     }
                 }
 
-                // Line Total
                 Text(
                     text = Formatters.formatCurrency(item.subtotal),
                     fontSize = 14.sp,
@@ -402,7 +362,7 @@ private fun CartItemRow(
                 )
             }
 
-            // Free items row if any
+            // Free item indicator if any
             if (item.freeQty > 0) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
@@ -415,18 +375,12 @@ private fun CartItemRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         FreeBadge()
-                        IconButton(onClick = { onUpdateFree(-1) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Remove, contentDescription = "ลดของแถม", tint = PastelPeach, modifier = Modifier.size(12.dp))
-                        }
                         Text(
-                            text = "${item.freeQty}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
+                            text = "ของแถม ${item.freeQty} ขวด (ใช้ ${item.pointsUsed} แต้ม)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
                             color = PastelPeachDark
                         )
-                        IconButton(onClick = { onUpdateFree(1) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = "เพิ่มของแถม", tint = PastelPeach, modifier = Modifier.size(12.dp))
-                        }
                     }
                     Text(text = "ฟรี", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PastelPeachDark)
                 }

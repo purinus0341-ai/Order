@@ -23,13 +23,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.sitticun.orderapp.data.model.HeldBill
 import com.sitticun.orderapp.ui.theme.*
-import com.sitticun.orderapp.util.Formatters
 
 @Composable
 fun HeldBillsDialog(
     heldBills: List<HeldBill>,
     onResumeBill: (HeldBill) -> Unit,
-    onDeleteBill: (String) -> Unit,
+    onDeleteBill: (HeldBill) -> Unit,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -60,7 +59,7 @@ fun HeldBillsDialog(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "รายการบิลที่พักไว้ (${heldBills.size})",
+                            text = "รายการบิลพัก (${heldBills.size})",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
@@ -72,7 +71,7 @@ fun HeldBillsDialog(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-                Divider(color = BorderLight, thickness = 0.8.dp)
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                 Spacer(modifier = Modifier.height(12.dp))
 
                 if (heldBills.isEmpty()) {
@@ -94,6 +93,7 @@ fun HeldBillsDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(heldBills, key = { it.id }) { bill ->
+                            val totalQty = bill.payload.paidQty.values.sum() + bill.payload.freeItems.sumOf { it.qty }
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
@@ -106,16 +106,16 @@ fun HeldBillsDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = bill.title,
+                                            text = bill.customerName.ifBlank { "ลูกค้า ${bill.customerId.take(8)}" },
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp,
                                             color = TextPrimary
                                         )
                                         Text(
-                                            text = Formatters.formatCurrency(bill.totalAmount),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = PastelPeach
+                                            text = "v.${bill.version}",
+                                            fontWeight = FontWeight.Normal,
+                                            fontSize = 11.sp,
+                                            color = TextMuted
                                         )
                                     }
 
@@ -127,12 +127,12 @@ fun HeldBillsDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "ลูกค้า: ${bill.customer?.name ?: "ทั่วไป"} • ${bill.totalItemsCount} รายการ",
+                                            text = "สินค้า $totalQty ชิ้น" + if (!bill.note.isNullOrBlank()) " • ${bill.note}" else "",
                                             fontSize = 12.sp,
                                             color = TextSecondary
                                         )
                                         Text(
-                                            text = Formatters.formatDateTime(bill.createdAt),
+                                            text = bill.updatedAt?.take(16)?.replace('T', ' ') ?: "",
                                             fontSize = 11.sp,
                                             color = TextMuted
                                         )
@@ -146,7 +146,7 @@ fun HeldBillsDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         IconButton(
-                                            onClick = { onDeleteBill(bill.id) },
+                                            onClick = { onDeleteBill(bill) },
                                             modifier = Modifier.size(36.dp)
                                         ) {
                                             Icon(

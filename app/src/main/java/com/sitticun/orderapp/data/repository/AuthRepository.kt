@@ -18,6 +18,9 @@ class AuthRepository(
     val isLoggedIn: Boolean
         get() = preferenceManager.isLoggedIn
 
+    val rememberedEmail: String?
+        get() = preferenceManager.rememberedEmail
+
     suspend fun login(email: String, pass: String): Result<UserProfile> {
         val res = supabaseClient.login(LoginRequest(email, pass))
         if (res.isSuccess) {
@@ -29,7 +32,7 @@ class AuthRepository(
 
     suspend fun verifyProfileActiveGuard(): Boolean {
         val user = preferenceManager.userProfile ?: return false
-        val res = supabaseClient.fetchUserProfile(user.id)
+        val res = supabaseClient.fetchUserProfile(user.userId)
         if (res.isSuccess) {
             val freshProfile = res.getOrThrow()
             preferenceManager.userProfile = freshProfile
@@ -40,7 +43,6 @@ class AuthRepository(
             }
             return true
         }
-        // If network error, check cached profile state
         return user.isActive
     }
 

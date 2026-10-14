@@ -2,9 +2,14 @@ package com.sitticun.orderapp.ui.screens.pos.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,16 +21,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.sitticun.orderapp.data.model.CartItem
 import com.sitticun.orderapp.data.model.Customer
+import com.sitticun.orderapp.data.model.PointBalance
 import com.sitticun.orderapp.ui.theme.*
-import com.sitticun.orderapp.util.Formatters
 
 @Composable
 fun PointsEditorDialog(
     customer: Customer?,
-    currentRedeemedPoints: Int,
-    subtotal: Double,
-    onConfirmPoints: (Int) -> Unit,
+    cartItems: List<CartItem>,
+    pointBalances: Map<Long, Long>,
+    onUpdatePointsAndFree: (productId: Long, pointsUsed: Int, freeQty: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     if (customer == null) {
@@ -40,7 +46,7 @@ fun PointsEditorDialog(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "กรุณาเลือกลูกค้าสมาชิกก่อนใช้แต้ม",
+                        text = "กรุณาเลือกลูกค้าสมาชิกก่อนแลกแต้ม",
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -57,14 +63,11 @@ fun PointsEditorDialog(
         return
     }
 
-    val maxPointsAllowed = minOf(customer.pointsBalance, subtotal.toInt())
-    var inputPoints by remember { mutableFloatStateOf(currentRedeemedPoints.toFloat().coerceIn(0f, maxPointsAllowed.toFloat())) }
-
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight(),
+                .heightIn(max = 580.dp),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = CardWhite),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
@@ -87,156 +90,184 @@ fun PointsEditorDialog(
                             Icon(Icons.Default.Stars, contentDescription = null, tint = PastelPeach, modifier = Modifier.size(20.dp))
                         }
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "แลกแต้มสะสมลดราคา",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
+                        Column {
+                            Text(
+                                text = "แต้มสะสม & แลกของแถม",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "ใช้แต้มเพื่อแลกของแถมตามหมวดสินค้า",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                        }
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Customer Info Card
+                // Customer info
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = SurfaceVariantColor,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(text = customer.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                            Text(text = "ยอดซื้อในบิลนี้: ${Formatters.formatCurrency(subtotal)}", fontSize = 12.sp, color = TextSecondary)
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(text = "แต้มที่มี", fontSize = 11.sp, color = TextSecondary)
-                            Text(
-                                text = Formatters.formatPoints(customer.pointsBalance),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = PastelMintDark
-                            )
-                        }
+                        Text(text = "ลูกค้า: ${customer.name}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Redeemed Points Indicator
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "แต้มที่ใช้แลก",
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
-                    Text(
-                        text = "${inputPoints.toInt()} แต้ม",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = PastelPeach
-                    )
-                    Text(
-                        text = "ส่วนลด: -${Formatters.formatCurrency(inputPoints.toDouble())}",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = StatusSuccess
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                if (maxPointsAllowed > 0) {
-                    Slider(
-                        value = inputPoints,
-                        onValueChange = { inputPoints = it },
-                        valueRange = 0f..maxPointsAllowed.toFloat(),
-                        steps = if (maxPointsAllowed > 1) maxPointsAllowed - 1 else 0,
-                        colors = SliderDefaults.colors(
-                            thumbColor = PastelPeach,
-                            activeTrackColor = PastelPeach,
-                            inactiveTrackColor = BorderLight
-                        )
-                    )
-                } else {
-                    Text(
-                        text = "ไม่สามารถใช้แต้มได้ (แต้มไม่พอหรือยอดบิลเป็นศูนย์)",
-                        fontSize = 12.sp,
-                        color = StatusDanger,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
-                }
-
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Quick buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { inputPoints = 0f },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("ไม่ใช้", fontSize = 12.sp)
+                if (cartItems.isEmpty()) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("ยังไม่มีสินค้าในตะกร้า", color = TextSecondary)
                     }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(cartItems, key = { it.product.id }) { item ->
+                            val balance = pointBalances[item.product.id] ?: 0L
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = SurfaceVariantColor)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = item.product.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = TextPrimary
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = PastelMintLight
+                                        ) {
+                                            Text(
+                                                text = "มี $balance แต้ม",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PastelMintDark,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
 
-                    if (maxPointsAllowed >= 50) {
-                        OutlinedButton(
-                            onClick = { inputPoints = 50f },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("50 แต้ม", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Stepper for points used
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = "แต้มที่ใช้: ${item.pointsUsed} แต้ม", fontSize = 13.sp, color = TextPrimary)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    val newPoints = (item.pointsUsed - 1).coerceAtLeast(0)
+                                                    // Also adjust freeQty accordingly if 0 points
+                                                    val newFree = if (newPoints == 0) 0 else item.freeQty
+                                                    onUpdatePointsAndFree(item.product.id, newPoints, newFree)
+                                                },
+                                                enabled = item.pointsUsed > 0,
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Remove, contentDescription = null, tint = if (item.pointsUsed > 0) PastelPeach else TextMuted)
+                                            }
+                                            Text(
+                                                text = "${item.pointsUsed}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp)
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    if (item.pointsUsed < balance) {
+                                                        val newPoints = item.pointsUsed + 1
+                                                        val newFree = if (item.freeQty == 0) 1 else item.freeQty
+                                                        onUpdatePointsAndFree(item.product.id, newPoints, newFree)
+                                                    }
+                                                },
+                                                enabled = item.pointsUsed < balance,
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = null, tint = if (item.pointsUsed < balance) PastelMint else TextMuted)
+                                            }
+                                        }
+                                    }
+
+                                    // Stepper for free items
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = "ของแถม: ${item.freeQty} ขวด", fontSize = 13.sp, color = PastelPeachDark, fontWeight = FontWeight.Medium)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    val newFree = (item.freeQty - 1).coerceAtLeast(0)
+                                                    val newPoints = if (newFree == 0) 0 else item.pointsUsed
+                                                    onUpdatePointsAndFree(item.product.id, newPoints, newFree)
+                                                },
+                                                enabled = item.freeQty > 0,
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Remove, contentDescription = null, tint = if (item.freeQty > 0) PastelPeach else TextMuted)
+                                            }
+                                            Text(
+                                                text = "${item.freeQty}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp)
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val newFree = item.freeQty + 1
+                                                    val newPoints = if (item.pointsUsed == 0 && balance > 0) 1 else item.pointsUsed
+                                                    onUpdatePointsAndFree(item.product.id, newPoints, newFree)
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = null, tint = PastelMint)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }
-
-                    OutlinedButton(
-                        onClick = { inputPoints = maxPointsAllowed.toFloat() },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("ใช้สูงสุด", fontSize = 12.sp)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Actions
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint, contentColor = Color.White)
                 ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("ยกเลิก")
-                    }
-
-                    Button(
-                        onClick = { onConfirmPoints(inputPoints.toInt()) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = PastelMint,
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Text("ยืนยันแต้ม", fontWeight = FontWeight.Bold)
-                    }
+                    Text("ตกลง", fontWeight = FontWeight.Bold)
                 }
             }
         }
