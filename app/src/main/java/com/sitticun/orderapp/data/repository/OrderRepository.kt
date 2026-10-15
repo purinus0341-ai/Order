@@ -202,8 +202,8 @@ class OrderRepository(
             customerName = customer.name,
             heldBillId = heldBillId,
             items = cloudItems,
-            point_uses = cloudPointUses,
-            free_items = cloudFreeItems
+            pointUses = cloudPointUses,
+            freeItems = cloudFreeItems
         )
 
         val totalPaidQty = paidItems.sumOf { it.paidQty }

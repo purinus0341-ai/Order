@@ -104,4 +104,16 @@ class OutboxRepository(
         }
         refreshOutbox()
     }
+
+    fun clearCompleted() {
+        clearSynced()
+    }
+
+    fun clearAll() {
+        val items = dbHelper.getAllOutbox()
+        for (item in items) {
+            dbHelper.deleteOutbox(item.id)
+        }
+        refreshOutbox()
+    }
 }

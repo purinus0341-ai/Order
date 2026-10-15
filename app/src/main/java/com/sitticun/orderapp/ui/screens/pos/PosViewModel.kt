@@ -7,6 +7,7 @@ import com.sitticun.orderapp.OrderApplication
 import com.sitticun.orderapp.data.model.*
 import com.sitticun.orderapp.data.repository.CustomerRepository
 import com.sitticun.orderapp.data.repository.OrderRepository
+import com.sitticun.orderapp.data.repository.PosDraftState
 import com.sitticun.orderapp.data.repository.ProductRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
