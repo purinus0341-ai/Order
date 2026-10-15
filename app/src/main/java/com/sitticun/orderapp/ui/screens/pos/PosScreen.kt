@@ -36,7 +36,7 @@ fun PosScreen(
     val isSyncing by OrderApplication.instance.outboxRepository.isSyncing.collectAsState()
     val isOnlineFlow by OrderApplication.instance.networkMonitor.isOnlineFlow.collectAsState(initial = true)
 
-    val pendingCount = remember(outboxItems) { outboxItems.count { it.status == "PENDING" || it.status == "FAILED" } }
+    val pendingCount = remember(outboxItems) { outboxItems.count { it.status == com.sitticun.orderapp.data.model.OutboxStatus.PENDING || it.status == com.sitticun.orderapp.data.model.OutboxStatus.FAILED } }
     var isMobileCartOpen by remember { mutableStateOf(false) }
 
     val filteredProducts = remember(products, state.searchQuery) {
