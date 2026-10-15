@@ -96,7 +96,7 @@ fun MarkerToolbar(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            Divider(color = BorderLight, thickness = 0.8.dp)
+            HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
             Spacer(modifier = Modifier.height(10.dp))
 
             // Actions: Undo, Clear, Save
