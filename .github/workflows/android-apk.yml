@@ -41,18 +41,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          gradle assembleDebug --stacktrace > build.log 2>&1
-
-      - name: Capture Failure Log
-        if: failure()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B build-logs
-          cp build.log error.log
-          git add error.log
-          git commit -m "Capture build failure log" || true
-          git push origin build-logs --force
+          gradle assembleDebug --stacktrace
 
       - name: Prepare APK for Artifact & Release
         id: prepare_apk
