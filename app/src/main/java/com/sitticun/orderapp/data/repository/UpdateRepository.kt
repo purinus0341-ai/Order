@@ -66,13 +66,14 @@ class UpdateRepository {
             val current = BuildConfig.APP_VERSION_NAME.trim()
 
             val apkAsset = release.assets.find { it.name.endsWith(".apk", ignoreCase = true) }
+            val hasUpdate = isNewerVersion(latestTag, current)
 
             Result.success(
                 UpdateInfo(
-                    hasUpdate = latestTag.isNotEmpty() && latestTag != current,
+                    hasUpdate = hasUpdate,
                     latestVersion = release.tagName,
                     currentVersion = current,
-                    releaseNotes = release.body ?: "ไม่มีรายละเอียดเพิ่มเติม",
+                    releaseNotes = if (hasUpdate) (release.body ?: "ไม่มีรายละเอียดเพิ่มเติม") else "คุณกำลังใช้งานเวอร์ชันล่าสุดแล้ว",
                     downloadUrl = apkAsset?.downloadUrl
                 )
             )
@@ -87,5 +88,23 @@ class UpdateRepository {
                 )
             )
         }
+    }
+
+    private fun isNewerVersion(latest: String, current: String): Boolean {
+        val cleanLatest = latest.removePrefix("v").trim()
+        val cleanCurrent = current.removePrefix("v").trim()
+        if (cleanLatest.isEmpty() || cleanCurrent.isEmpty()) return false
+        if (cleanLatest.equals(cleanCurrent, ignoreCase = true)) return false
+
+        val latestParts = cleanLatest.split(".").mapNotNull { it.toIntOrNull() }
+        val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
+        val maxLen = maxOf(latestParts.size, currentParts.size)
+        for (i in 0 until maxLen) {
+            val l = latestParts.getOrElse(i) { 0 }
+            val c = currentParts.getOrElse(i) { 0 }
+            if (l > c) return true
+            if (l < c) return false
+        }
+        return false
     }
 }

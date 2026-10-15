@@ -36,12 +36,53 @@ jobs:
       - name: Make Gradlew Executable
         run: chmod +x ./gradlew || true
 
+      - name: Cache Debug Keystore
+        id: cache-keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Generate Debug Keystore if Not Cached
+        if: steps.cache-keystore.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.android
+          keytool -genkey -v \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Determine Version Metadata
+        id: version_meta
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_TAG="${{ github.ref_name }}"
+            VER_NAME="${RAW_TAG#v}"
+            VER_CODE="${{ github.run_number }}"
+            echo "TAG_NAME=${RAW_TAG}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=OrderApp Release ${RAW_TAG}" >> $GITHUB_ENV
+          else
+            VER_NAME="1.0.${{ github.run_number }}"
+            VER_CODE="${{ github.run_number }}"
+            echo "TAG_NAME=v${VER_NAME}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=OrderApp Build #${{ github.run_number }} (v${VER_NAME})" >> $GITHUB_ENV
+          fi
+          echo "APP_VERSION_NAME=${VER_NAME}" >> $GITHUB_ENV
+          echo "APP_VERSION_CODE=${VER_CODE}" >> $GITHUB_ENV
+
       - name: Assemble Debug APK
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VERSION_NAME: ${{ env.APP_VERSION_NAME }}
+          VERSION_CODE: ${{ env.APP_VERSION_CODE }}
         run: |
-          gradle assembleDebug --stacktrace
+          gradle assembleDebug -PversionName="${{ env.APP_VERSION_NAME }}" -PversionCode="${{ env.APP_VERSION_CODE }}" --stacktrace
 
       - name: Prepare APK for Artifact & Release
         id: prepare_apk
@@ -62,17 +103,6 @@ jobs:
           path: OrderApp-debug.apk
           retention-days: 30
 
-      - name: Set Release Metadata
-        id: release_meta
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
-            echo "RELEASE_NAME=OrderApp Release ${{ github.ref_name }}" >> $GITHUB_ENV
-          else
-            echo "TAG_NAME=v1.0.${{ github.run_number }}" >> $GITHUB_ENV
-            echo "RELEASE_NAME=OrderApp Build #${{ github.run_number }}" >> $GITHUB_ENV
-          fi
-
       - name: Publish APK to GitHub Releases
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
@@ -80,7 +110,8 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           name: ${{ env.RELEASE_NAME }}
           body: |
-            ### OrderApp POS & Stock Management (Android Native)
+            ### OrderApp POS & Stock Management (Android Native ${{ env.TAG_NAME }})
+            - **Version:** ${{ env.APP_VERSION_NAME }} (Build #${{ env.APP_VERSION_CODE }})
             - **Commit:** ${{ github.sha }}
             - **Branch/Ref:** ${{ github.ref_name }}
             - **Platform:** Android (MinSdk 26, TargetSdk 34)

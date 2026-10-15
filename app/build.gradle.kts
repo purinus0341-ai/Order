@@ -9,12 +9,33 @@ android {
     namespace = "com.sitticun.orderapp"
     compileSdk = 34
 
+    signingConfigs {
+        getByName("debug") {
+            val keystoreFile = file("debug.keystore")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.sitticun.orderapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+
+        val appVersionName: String = (project.findProperty("versionName") as? String)?.takeIf { it.isNotBlank() }
+            ?: System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() }
+            ?: "1.0.0"
+
+        val appVersionCode: Int = (project.findProperty("versionCode") as? String)?.toIntOrNull()
+            ?: System.getenv("VERSION_CODE")?.toIntOrNull()
+            ?: 1
+
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -31,8 +52,8 @@ android {
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
-        buildConfigField("String", "APP_VERSION_NAME", "\"1.0.0\"")
-        buildConfigField("int", "APP_VERSION_CODE", "1")
+        buildConfigField("String", "APP_VERSION_NAME", "\"$appVersionName\"")
+        buildConfigField("int", "APP_VERSION_CODE", "$appVersionCode")
     }
 
     buildTypes {
@@ -47,6 +68,7 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
