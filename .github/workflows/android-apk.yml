@@ -75,6 +75,24 @@ jobs:
           echo "APP_VERSION_NAME=${VER_NAME}" >> $GITHUB_ENV
           echo "APP_VERSION_CODE=${VER_CODE}" >> $GITHUB_ENV
 
+      - name: Validate Supabase configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "::error::GitHub Actions secret SUPABASE_URL is missing"
+            exit 1
+          fi
+          if [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::GitHub Actions secret SUPABASE_ANON_KEY is missing"
+            exit 1
+          fi
+          if [[ "$SUPABASE_URL" != "https://pafgvntgilogmxfrjamp.supabase.co" ]]; then
+            echo "::error::SUPABASE_URL must point to the Ordernew project"
+            exit 1
+          fi
+
       - name: Assemble Debug APK
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
