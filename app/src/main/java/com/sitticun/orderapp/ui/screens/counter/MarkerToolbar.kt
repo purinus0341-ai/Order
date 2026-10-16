@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,51 +33,57 @@ fun MarkerToolbar(
     modifier: Modifier = Modifier
 ) {
     val colorPalette = listOf(
-        "#5B8A72", // Mint
-        "#E07A5F", // Peach
-        "#6B7FD7", // Lavender
-        "#D9534F", // Coral Red
-        "#F1A208"  // Amber
+        "#007AFF", // iOS Blue
+        "#34C759", // iOS Green
+        "#FF9500", // iOS Orange
+        "#FF3B30", // iOS Red
+        "#5856D6"  // iOS Indigo
     )
 
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = CardWhite,
-        shadowElevation = 4.dp,
-        shape = RoundedCornerShape(16.dp)
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 14.dp,
+                shape = RoundedCornerShape(22.dp),
+                ambientColor = Color.Black.copy(alpha = 0.14f)
+            ),
+        color = IosTranslucentBar,
+        shape = RoundedCornerShape(22.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // Count and Color picker row
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Count Badge
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = PastelMintLight
+                    shape = RoundedCornerShape(50),
+                    color = IosBlueLight
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "นับได้: ",
+                            text = "นับได้ ",
                             fontSize = 12.sp,
-                            color = PastelMintDark
+                            color = IosBlueDark
                         )
                         Text(
                             text = "$totalCount จุด",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = PastelMintDark
+                            color = IosBlue
                         )
                     }
                 }
 
-                // Color Palette Dots
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // iOS Markup Color Palette Dots
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     colorPalette.forEach { hex ->
                         val isSelected = selectedColorHex.equals(hex, ignoreCase = true)
                         val color = Color(android.graphics.Color.parseColor(hex))
@@ -88,18 +95,17 @@ fun MarkerToolbar(
                                 .clickable { onColorSelected(hex) }
                                 .then(
                                     if (isSelected) Modifier.border(2.5.dp, TextPrimary, CircleShape)
-                                    else Modifier
+                                    else Modifier.border(1.dp, Color.White.copy(alpha = 0.8f), CircleShape)
                                 )
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = IosSeparatorLight, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Actions: Undo, Clear, Save
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -108,36 +114,37 @@ fun MarkerToolbar(
                 OutlinedButton(
                     onClick = onUndo,
                     enabled = totalCount > 0,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(42.dp)
                 ) {
                     Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("ย้อนกลับ", fontSize = 12.sp)
+                    Text("ย้อนกลับ", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
 
                 OutlinedButton(
                     onClick = onClearAll,
                     enabled = totalCount > 0,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(42.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusDanger)
                 ) {
                     Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("ล้างจุด", fontSize = 12.sp)
+                    Text("ล้างจุด", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
 
                 Button(
                     onClick = onSaveCount,
                     enabled = totalCount > 0,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1.3f),
-                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint, contentColor = Color.White)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1.3f).height(42.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = IosBlue, contentColor = Color.White),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("บันทึกสต็อก", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("บันทึกยอด", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

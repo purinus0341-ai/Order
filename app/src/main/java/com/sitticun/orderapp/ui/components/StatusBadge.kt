@@ -17,16 +17,16 @@ import com.sitticun.orderapp.ui.theme.*
 @Composable
 fun StockBadge(stockQty: Int, minAlert: Int, modifier: Modifier = Modifier) {
     val (bgColor, textColor, label) = when {
-        stockQty <= 0 -> Triple(Color(0xFFFFEBEA), StatusDanger, "หมด")
-        stockQty <= minAlert -> Triple(Color(0xFFFFF3E0), StatusWarning, "ใกล้หมด ($stockQty)")
-        else -> Triple(PastelMintLight, PastelMintDark, "$stockQty ชิ้น")
+        stockQty <= 0 -> Triple(IosRedLight, StatusDanger, "หมด")
+        stockQty <= minAlert -> Triple(IosOrangeLight, StatusWarning, "ใกล้หมด ($stockQty)")
+        else -> Triple(IosGreenLight, IosGreenDark, "$stockQty ชิ้น")
     }
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(50))
             .background(bgColor)
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
     ) {
         Text(
             text = label,
@@ -40,20 +40,20 @@ fun StockBadge(stockQty: Int, minAlert: Int, modifier: Modifier = Modifier) {
 @Composable
 fun OrderStatusBadge(status: String, modifier: Modifier = Modifier) {
     val isCompleted = status.equals("COMPLETED", ignoreCase = true)
-    val bgColor = if (isCompleted) PastelMintLight else Color(0xFFFFEBEA)
-    val textColor = if (isCompleted) PastelMintDark else StatusDanger
-    val text = if (isCompleted) "สำเร็จ" else "ยกเลิกบิลแล้ว"
+    val bgColor = if (isCompleted) IosGreenLight else IosRedLight
+    val textColor = if (isCompleted) IosGreenDark else StatusDanger
+    val text = if (isCompleted) "สำเร็จ" else "ยกเลิกแล้ว"
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(50))
             .background(bgColor)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .padding(horizontal = 10.dp, vertical = 3.dp)
     ) {
         Text(
             text = text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
             color = textColor
         )
     }
@@ -63,15 +63,15 @@ fun OrderStatusBadge(status: String, modifier: Modifier = Modifier) {
 fun FreeBadge(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(PastelPeachLight)
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(50))
+            .background(IosOrangeLight)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
     ) {
         Text(
             text = "ของแถม",
             fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            color = PastelPeachDark
+            fontWeight = FontWeight.SemiBold,
+            color = IosOrangeDark
         )
     }
 }

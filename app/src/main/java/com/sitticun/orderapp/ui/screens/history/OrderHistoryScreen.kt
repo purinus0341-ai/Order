@@ -1,5 +1,6 @@
 package com.sitticun.orderapp.ui.screens.history
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -18,6 +20,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sitticun.orderapp.data.model.OrderSummary
+import com.sitticun.orderapp.ui.components.IosNavigationHeader
+import com.sitticun.orderapp.ui.components.IosSearchBar
+import com.sitticun.orderapp.ui.components.IosSegmentedControl
 import com.sitticun.orderapp.ui.components.OrderStatusBadge
 import com.sitticun.orderapp.ui.theme.*
 import com.sitticun.orderapp.util.Formatters
@@ -30,6 +35,9 @@ fun OrderHistoryScreen(
     val state by viewModel.uiState.collectAsState()
     val orders by viewModel.orders.collectAsState()
     val isAdmin = viewModel.isAdmin
+
+    val statusOptions = listOf("ทั้งหมด", "สำเร็จ", "ยกเลิกแล้ว")
+    val selectedStatusIdx = statusOptions.indexOf(state.selectedStatus).coerceAtLeast(0)
 
     val filteredOrders = remember(orders, state.searchQuery, state.selectedStatus) {
         orders.filter { ord ->
@@ -74,13 +82,14 @@ fun OrderHistoryScreen(
             confirmButton = {
                 Button(
                     onClick = { viewModel.dismissSuccessDialog() },
-                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                    colors = ButtonDefaults.buttonColors(containerColor = IosBlue),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("ตกลง", color = Color.White)
                 }
             },
             containerColor = CardWhite,
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(18.dp)
         )
     }
 
@@ -93,86 +102,58 @@ fun OrderHistoryScreen(
             confirmButton = {
                 Button(
                     onClick = { viewModel.clearErrorMessage() },
-                    colors = ButtonDefaults.buttonColors(containerColor = StatusDanger)
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusDanger),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("ตกลง", color = Color.White)
                 }
             },
             containerColor = CardWhite,
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(18.dp)
         )
     }
 
-    Scaffold(containerColor = PastelBackground) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // Header Search & Filter
-            Surface(color = CardWhite, shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    OutlinedTextField(
-                        value = state.searchQuery,
-                        onValueChange = { viewModel.onSearchQueryChange(it) },
-                        placeholder = { Text("ค้นหาเลขที่บิล, ชื่อลูกค้า...", fontSize = 13.sp) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = PastelMint) },
-                        trailingIcon = {
-                            if (state.searchQuery.isNotBlank()) {
-                                IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
-                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = PastelMint,
-                            unfocusedBorderColor = BorderLight
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("ทั้งหมด", "สำเร็จ", "ยกเลิกแล้ว").forEach { status ->
-                            val isSelected = state.selectedStatus == status
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.onStatusFilterChange(status) },
-                                label = { Text(status, fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = PastelLavender,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = SurfaceVariantColor,
-                                    labelColor = TextPrimary
-                                ),
-                                shape = RoundedCornerShape(20.dp)
-                            )
-                        }
-                    }
-                }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(IosGroupedBackground)
+    ) {
+        IosNavigationHeader(
+            title = "ประวัติการขาย",
+            subtitle = "รายการบิลทั้งหมด ${filteredOrders.size} รายการ",
+            bottomContent = {
+                IosSearchBar(
+                    query = state.searchQuery,
+                    onQueryChange = { viewModel.onSearchQueryChange(it) },
+                    placeholder = "ค้นหาเลขที่บิล หรือชื่อลูกค้า...",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                IosSegmentedControl(
+                    items = statusOptions,
+                    selectedIndex = selectedStatusIdx,
+                    onItemSelected = { idx -> viewModel.onStatusFilterChange(statusOptions[idx]) }
+                )
             }
+        )
 
-            // Orders list
-            if (filteredOrders.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(text = "ไม่พบบันทึกการขาย", color = TextSecondary, fontSize = 14.sp)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filteredOrders, key = { it.id }) { order ->
-                        OrderCardItem(
-                            order = order,
-                            canVoid = isAdmin && !order.isVoided,
-                            onClick = { viewModel.selectOrder(order) },
-                            onVoid = { viewModel.openVoidDialog(order) }
-                        )
-                    }
+        if (filteredOrders.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(text = "ไม่พบบันทึกการขาย", color = TextSecondary, fontSize = 14.sp)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(filteredOrders, key = { it.id }) { order ->
+                    OrderCardItem(
+                        order = order,
+                        canVoid = isAdmin && !order.isVoided,
+                        onClick = { viewModel.selectOrder(order) },
+                        onVoid = { viewModel.openVoidDialog(order) }
+                    )
                 }
             }
         }
@@ -182,13 +163,12 @@ fun OrderHistoryScreen(
     if (state.selectedOrder != null && !state.showVoidDialog) {
         val ord = state.selectedOrder!!
         Dialog(onDismissRequest = { viewModel.selectOrder(null) }) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = CardWhite),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(12.dp)
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = CardWhite,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(8.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -197,7 +177,7 @@ fun OrderHistoryScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "บิล #${ord.id.take(8)}",
-                                fontSize = 17.sp,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
@@ -211,13 +191,13 @@ fun OrderHistoryScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
+                    HorizontalDivider(color = IosSeparatorLight, thickness = 0.6.dp)
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
                         text = "ลูกค้า: ${ord.customerName.ifBlank { "ไม่ระบุ" }}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = TextPrimary
                     )
                     if (!ord.createdBy.isNullOrBlank()) {
@@ -225,10 +205,10 @@ fun OrderHistoryScreen(
                     }
 
                     if (ord.isVoided) {
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFFFEBEE),
+                            shape = RoundedCornerShape(10.dp),
+                            color = IosRedLight,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
@@ -242,11 +222,12 @@ fun OrderHistoryScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text(text = "รายการสินค้า (${ord.totalQty} ชิ้น):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(text = "รายการสินค้า (${ord.totalQty} ชิ้น):", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     LazyColumn(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(ord.items) { item ->
                             Row(
@@ -257,19 +238,21 @@ fun OrderHistoryScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "${item.nameSnapshot} ${item.volumeSnapshot ?: ""}".trim(),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextPrimary
                                     )
                                     Text(
                                         text = "${item.qty} ชิ้น x ${Formatters.formatCurrency(item.unitPrice)}",
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         color = TextSecondary
                                     )
                                 }
                                 Text(
                                     text = Formatters.formatCurrency(item.subtotal),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
                                 )
                             }
                         }
@@ -281,7 +264,7 @@ fun OrderHistoryScreen(
                                     text = "ของแถมที่แลกรับ:",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = PastelPeachDark
+                                    color = IosOrangeDark
                                 )
                             }
                             items(ord.freeItems) { free ->
@@ -298,7 +281,7 @@ fun OrderHistoryScreen(
                                         text = "${free.qty} ชิ้น (ฟรี)",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = PastelPeachDark
+                                        color = IosOrangeDark
                                     )
                                 }
                             }
@@ -336,7 +319,7 @@ fun OrderHistoryScreen(
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
+                    HorizontalDivider(color = IosSeparatorLight, thickness = 0.6.dp)
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
@@ -349,7 +332,7 @@ fun OrderHistoryScreen(
                             text = Formatters.formatCurrency(ord.total),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = PastelPeach
+                            color = IosBlue
                         )
                     }
 
@@ -358,22 +341,22 @@ fun OrderHistoryScreen(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
                             onClick = { viewModel.selectOrder(null) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("ปิด")
+                            Text("ปิด", color = TextSecondary)
                         }
 
                         if (!ord.isVoided && isAdmin) {
                             Button(
                                 onClick = { viewModel.openVoidDialog(ord) },
                                 colors = ButtonDefaults.buttonColors(containerColor = StatusDanger),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("ยกเลิกบิลนี้", color = Color.White)
+                                Text("ยกเลิกบิลนี้", color = Color.White, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -390,11 +373,13 @@ private fun OrderCardItem(
     onClick: () -> Unit,
     onVoid: () -> Unit
 ) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CardWhite),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = CardWhite,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -405,13 +390,13 @@ private fun OrderCardItem(
                 Text(
                     text = "บิล #${order.id.take(8)}",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+                    fontSize = 15.sp,
                     color = TextPrimary
                 )
                 OrderStatusBadge(status = if (order.isVoided) "VOIDED" else "COMPLETED")
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -420,14 +405,14 @@ private fun OrderCardItem(
             ) {
                 Text(
                     text = "ลูกค้า: ${order.customerName.ifBlank { "ไม่ระบุ" }} • ${order.totalQty} ชิ้น",
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     color = TextSecondary
                 )
                 Text(
                     text = Formatters.formatCurrency(order.total),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PastelPeach
+                    color = IosBlue
                 )
             }
 
@@ -445,11 +430,20 @@ private fun OrderCardItem(
                 )
 
                 if (canVoid) {
-                    TextButton(
-                        onClick = onVoid,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = IosRedLight,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(onClick = onVoid)
                     ) {
-                        Text("ยกเลิกบิล", color = StatusDanger, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "ยกเลิกบิล",
+                            color = StatusDanger,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }

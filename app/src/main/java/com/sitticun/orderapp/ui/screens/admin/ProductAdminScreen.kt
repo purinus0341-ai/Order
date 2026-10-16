@@ -125,7 +125,12 @@ fun ProductAdminScreen(
                             Switch(
                                 checked = prod.isActive,
                                 onCheckedChange = { onToggleActive(prod) },
-                                colors = SwitchDefaults.colors(checkedThumbColor = PastelMint, checkedTrackColor = PastelMintLight)
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = StatusSuccess,
+                                    uncheckedThumbColor = Color.White,
+                                    uncheckedTrackColor = IosSystemGray4
+                                )
                             )
 
                             IconButton(onClick = { onOpenEdit(prod) }, modifier = Modifier.size(32.dp)) {
@@ -225,7 +230,12 @@ fun ProductEditDialog(
                     Switch(
                         checked = isActive,
                         onCheckedChange = { isActive = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = PastelMint, checkedTrackColor = PastelMintLight)
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = StatusSuccess,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = IosSystemGray4
+                        )
                     )
                 }
 

@@ -1,16 +1,20 @@
 package com.sitticun.orderapp.ui.navigation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -26,14 +30,19 @@ import com.sitticun.orderapp.ui.screens.pos.PosScreen
 import com.sitticun.orderapp.ui.screens.stock.StockScreen
 import com.sitticun.orderapp.ui.theme.*
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Login : Screen("login", "เข้าสู่ระบบ", Icons.Default.Lock)
-    object Pos : Screen("pos", "ขายสินค้า (POS)", Icons.Default.PointOfSale)
-    object Stock : Screen("stock", "สต็อก", Icons.Default.Inventory2)
-    object Counter : Screen("counter", "นับสต็อกรูป", Icons.Default.CameraAlt)
-    object Customers : Screen("customers", "ลูกค้า/แต้ม", Icons.Default.People)
-    object History : Screen("history", "ประวัติการขาย", Icons.Default.ReceiptLong)
-    object Admin : Screen("admin", "ผู้ดูแล/ซิงค์", Icons.Default.Tune)
+sealed class Screen(
+    val route: String,
+    val title: String,
+    val icon: ImageVector,
+    val unselectedIcon: ImageVector
+) {
+    object Login : Screen("login", "เข้าสู่ระบบ", Icons.Filled.Lock, Icons.Outlined.Lock)
+    object Pos : Screen("pos", "หน้าร้าน", Icons.Filled.Storefront, Icons.Outlined.Storefront)
+    object Stock : Screen("stock", "สต็อก", Icons.Filled.Inventory2, Icons.Outlined.Inventory2)
+    object Counter : Screen("counter", "นับรูป", Icons.Filled.CameraAlt, Icons.Outlined.CameraAlt)
+    object Customers : Screen("customers", "สมาชิก", Icons.Filled.People, Icons.Outlined.People)
+    object History : Screen("history", "บิลขาย", Icons.Filled.ReceiptLong, Icons.Outlined.ReceiptLong)
+    object Admin : Screen("admin", "ตั้งค่า", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 val bottomNavItems = listOf(
@@ -56,40 +65,24 @@ fun OrderAppNavGraph(
     val startDestination = if (isLoggedIn) Screen.Pos.route else Screen.Login.route
 
     Scaffold(
+        containerColor = IosGroupedBackground,
         bottomBar = {
             if (currentRoute != Screen.Login.route) {
-                NavigationBar(
-                    containerColor = CardWhite,
-                    tonalElevation = 6.dp,
-                    modifier = Modifier.clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                ) {
-                    bottomNavItems.forEach { screen ->
-                        val selected = currentRoute == screen.route
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                if (currentRoute != screen.route) {
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                IosTabBar(
+                    items = bottomNavItems,
+                    currentRoute = currentRoute,
+                    onItemSelected = { screen ->
+                        if (currentRoute != screen.route) {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
                                 }
-                            },
-                            icon = { Icon(screen.icon, contentDescription = screen.title) },
-                            label = { Text(screen.title, fontSize = 11.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = PastelMintDark,
-                                selectedTextColor = PastelMintDark,
-                                indicatorColor = PastelMintLight,
-                                unselectedIconColor = TextSecondary,
-                                unselectedTextColor = TextSecondary
-                            )
-                        )
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     }
-                }
+                )
             }
         }
     ) { innerPadding ->
@@ -136,6 +129,71 @@ fun OrderAppNavGraph(
                         }
                     }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Authentic iOS UITabBar with translucent white surface, 0.5dp top hairline separator,
+ * no Material pill indicator, and crisp SF-style active/inactive tinting.
+ */
+@Composable
+private fun IosTabBar(
+    items: List<Screen>,
+    currentRoute: String?,
+    onItemSelected: (Screen) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(IosTranslucentBar)
+            .navigationBarsPadding()
+    ) {
+        HorizontalDivider(
+            color = IosSeparator.copy(alpha = 0.55f),
+            thickness = 0.5.dp
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.forEach { screen ->
+                val selected = currentRoute == screen.route
+                val tintColor = if (selected) IosBlue else IosSystemGray
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onItemSelected(screen) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = if (selected) screen.icon else screen.unselectedIcon,
+                        contentDescription = screen.title,
+                        tint = tintColor,
+                        modifier = Modifier.size(23.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = screen.title,
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = tintColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = (-0.1).sp
+                    )
+                }
             }
         }
     }

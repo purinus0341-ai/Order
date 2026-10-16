@@ -1,13 +1,13 @@
 <resources>
-    <color name="cream_bg">#FDFBF7</color>
+    <color name="cream_bg">#F2F2F7</color>
     <color name="card_white">#FFFFFF</color>
-    <color name="mint_primary">#5B8A72</color>
-    <color name="peach_secondary">#E07A5F</color>
-    <color name="lavender_tertiary">#6B7FD7</color>
-    <color name="text_primary">#1F2421</color>
-    <color name="text_secondary">#58635B</color>
-    <color name="divider_border">#E5E0D8</color>
-    <color name="status_green">#4E8752</color>
-    <color name="status_red">#D9534F</color>
-    <color name="status_yellow">#E67E22</color>
+    <color name="mint_primary">#007AFF</color>
+    <color name="peach_secondary">#FF9500</color>
+    <color name="lavender_tertiary">#5856D6</color>
+    <color name="text_primary">#1C1C1E</color>
+    <color name="text_secondary">#6C6C70</color>
+    <color name="divider_border">#E5E5EA</color>
+    <color name="status_green">#34C759</color>
+    <color name="status_red">#FF3B30</color>
+    <color name="status_yellow">#FF9500</color>
 </resources>

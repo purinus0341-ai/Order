@@ -20,7 +20,7 @@ import java.util.UUID
 data class ImageCounterUiState(
     val selectedImageUri: Uri? = null,
     val markers: List<MarkerDot> = emptyList(),
-    val selectedColorHex: String = "#5B8A72",
+    val selectedColorHex: String = "#007AFF",
     val selectedProduct: Product? = null,
     val showSaveDialog: Boolean = false,
     val isSaving: Boolean = false,

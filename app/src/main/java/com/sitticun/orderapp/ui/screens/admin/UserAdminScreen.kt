@@ -182,10 +182,10 @@ private fun UserCard(
                     checked = user.isActive,
                     onCheckedChange = { onToggle() },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = PastelMint,
-                        checkedTrackColor = PastelMintLight,
-                        uncheckedThumbColor = StatusDanger,
-                        uncheckedTrackColor = Color(0xFFFFEBEE)
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = StatusSuccess,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = IosSystemGray4
                     )
                 )
             }

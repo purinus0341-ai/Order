@@ -18,7 +18,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.sitticun.orderapp.data.model.StockSnapshot
+import com.sitticun.orderapp.ui.components.IosIconBox
+import com.sitticun.orderapp.ui.components.IosNavigationHeader
 import com.sitticun.orderapp.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,16 +33,19 @@ fun StockScreen(
     if (state.message != null) {
         AlertDialog(
             onDismissRequest = { viewModel.clearMessage() },
-            title = { Text("สำเร็จ", fontWeight = FontWeight.Bold, color = PastelMintDark) },
+            title = { Text("สำเร็จ", fontWeight = FontWeight.Bold, color = StatusSuccess) },
             text = { Text(state.message ?: "") },
             confirmButton = {
                 Button(
                     onClick = { viewModel.clearMessage() },
-                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                    colors = ButtonDefaults.buttonColors(containerColor = IosBlue),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("ตกลง", color = Color.White)
                 }
-            }
+            },
+            containerColor = CardWhite,
+            shape = RoundedCornerShape(18.dp)
         )
     }
 
@@ -53,28 +57,47 @@ fun StockScreen(
             confirmButton = {
                 Button(
                     onClick = { viewModel.clearMessage() },
-                    colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                    colors = ButtonDefaults.buttonColors(containerColor = IosBlue),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("ตกลง", color = Color.White)
                 }
-            }
+            },
+            containerColor = CardWhite,
+            shape = RoundedCornerShape(18.dp)
         )
     }
 
-    Scaffold(containerColor = PastelBackground) { paddingValues ->
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(IosGroupedBackground)
+    ) {
+        IosNavigationHeader(
+            title = "จัดการสต็อก",
+            subtitle = "ตรวจสอบยอดคงเหลือและบันทึก Snapshot ประจำรอบ",
+            trailingContent = {
+                IosIconBox(
+                    icon = Icons.Default.Inventory2,
+                    backgroundColor = IosBlue,
+                    size = 34.dp,
+                    iconSize = 18.dp
+                )
+            }
+        )
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Count Form Card
+            // Count Form Card (iOS Inset Grouped Card)
             item {
-                Card(
+                Surface(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardWhite),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    color = CardWhite,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -86,43 +109,35 @@ fun StockScreen(
                             Column {
                                 Text(
                                     text = "นับสต็อกสินค้า (Stock Snapshot)",
-                                    fontSize = 17.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "คำนวณยอดระบบเทียบกับยอดนับจริงครบทุกตัว",
+                                    text = "เทียบยอดในระบบกับยอดนับจริงหน้าร้าน",
                                     fontSize = 12.sp,
                                     color = TextSecondary
                                 )
                             }
-                            Icon(
-                                imageVector = Icons.Default.Inventory2,
-                                contentDescription = null,
-                                tint = PastelMint,
-                                modifier = Modifier.size(28.dp)
-                            )
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = BorderLight, thickness = 0.8.dp)
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         // Table Header
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(SurfaceVariantColor, RoundedCornerShape(8.dp))
+                                .background(IosGroupedBackground, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "สินค้า", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1.5f))
-                            Text(text = "ระบบ", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.8f))
-                            Text(text = "นับจริง", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1.2f))
-                            Text(text = "ต่าง", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.7f))
+                            Text(text = "สินค้า", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary, modifier = Modifier.weight(1.5f))
+                            Text(text = "ระบบ", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary, modifier = Modifier.weight(0.8f))
+                            Text(text = "นับจริง", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary, modifier = Modifier.weight(1.2f))
+                            Text(text = "ส่วนต่าง", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary, modifier = Modifier.weight(0.7f))
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         // Product rows
                         for (item in state.comparisons) {
@@ -131,26 +146,29 @@ fun StockScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                                    .padding(horizontal = 4.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1.5f)) {
                                     Text(
                                         text = item.product.name,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = TextPrimary
                                     )
-                                    Text(
-                                        text = item.product.volume ?: "",
-                                        fontSize = 10.sp,
-                                        color = TextMuted
-                                    )
+                                    if (!item.product.volume.isNullOrBlank()) {
+                                        Text(
+                                            text = item.product.volume,
+                                            fontSize = 11.sp,
+                                            color = TextMuted
+                                        )
+                                    }
                                 }
 
                                 Text(
                                     text = "${item.systemQty}",
-                                    fontSize = 13.sp,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
                                     color = TextSecondary,
                                     modifier = Modifier.weight(0.8f)
                                 )
@@ -163,10 +181,12 @@ fun StockScreen(
                                     modifier = Modifier
                                         .weight(1.2f)
                                         .height(48.dp),
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = PastelMint,
-                                        unfocusedBorderColor = BorderLight
+                                        focusedBorderColor = IosBlue,
+                                        unfocusedBorderColor = IosSeparatorLight,
+                                        focusedContainerColor = IosGroupedBackground,
+                                        unfocusedContainerColor = IosGroupedBackground
                                     )
                                 )
 
@@ -174,11 +194,11 @@ fun StockScreen(
                                     text = if (diff > 0) "+$diff" else "$diff",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (diff == 0) PastelMintDark else if (diff > 0) Color(0xFF2E7D32) else StatusDanger,
-                                    modifier = Modifier.weight(0.7f).padding(start = 6.dp)
+                                    color = if (diff == 0) TextSecondary else if (diff > 0) StatusSuccess else StatusDanger,
+                                    modifier = Modifier.weight(0.7f).padding(start = 8.dp)
                                 )
                             }
-                            HorizontalDivider(color = BorderLight.copy(alpha = 0.5f), thickness = 0.5.dp)
+                            HorizontalDivider(color = IosSeparatorLight, thickness = 0.5.dp)
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
@@ -187,10 +207,16 @@ fun StockScreen(
                         OutlinedTextField(
                             value = state.note,
                             onValueChange = { viewModel.onNoteChange(it) },
-                            placeholder = { Text("โน้ตเพิ่มเติม เช่น นับรอบเย็น, ตรวจนับประจำเดือน") },
+                            placeholder = { Text("โน้ตเพิ่มเติม เช่น นับรอบเย็น, ตรวจนับประจำเดือน", fontSize = 13.sp) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = IosBlue,
+                                unfocusedBorderColor = IosSeparatorLight,
+                                focusedContainerColor = IosGroupedBackground,
+                                unfocusedContainerColor = IosGroupedBackground
+                            )
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -201,20 +227,21 @@ fun StockScreen(
                             enabled = !state.isSaving && state.comparisons.isNotEmpty(),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(46.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PastelMint)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = IosBlue),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                         ) {
                             if (state.isSaving) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                             } else {
                                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("บันทึกสต็อก (Create Snapshot)", fontWeight = FontWeight.Bold)
+                                Text("บันทึกสต็อก (Create Snapshot)", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                             }
                         }
 
-                        // Send LINE Notify Button (If a snapshot exists)
+                        // Send LINE Notify Button
                         val targetSnapshotId = state.lastSavedSnapshotId ?: snapshots.firstOrNull()?.id
                         if (targetSnapshotId != null) {
                             Spacer(modifier = Modifier.height(10.dp))
@@ -223,21 +250,22 @@ fun StockScreen(
                                 enabled = !state.isSendingLineNotify,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(44.dp),
-                                shape = RoundedCornerShape(12.dp),
+                                    .height(46.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF06C755),
+                                    containerColor = StatusSuccess,
                                     contentColor = Color.White
-                                )
+                                ),
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                             ) {
                                 if (state.isSendingLineNotify) {
                                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("กำลังส่งแจ้งเตือน...")
                                 } else {
-                                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(17.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("ส่งรายงานเข้า LINE ($targetSnapshotId)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("ส่งรายงานเข้า LINE ($targetSnapshotId)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 }
                             }
                         }
@@ -245,29 +273,34 @@ fun StockScreen(
                 }
             }
 
-            // Snapshot History Header
+            // Snapshot History Header (iOS Grouped Section Header)
             item {
                 Text(
-                    text = "ประวัติ Snapshot สต็อกย้อนหลัง",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    text = "ประวัติการนับสต็อกย้อนหลัง",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(start = 6.dp)
                 )
             }
 
-            // History List
             if (snapshots.isEmpty()) {
                 item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                        Text(text = "ยังไม่มีประวัติการนับสต็อก", color = TextSecondary)
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = CardWhite,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Text(text = "ยังไม่มีประวัติการนับสต็อก", color = TextSecondary, fontSize = 14.sp)
+                        }
                     }
                 }
             } else {
                 items(snapshots, key = { it.id }) { snap ->
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = CardWhite),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = CardWhite,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
@@ -276,7 +309,7 @@ fun StockScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = snap.id, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                                Text(text = snap.id, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
                                 Text(
                                     text = snap.capturedAt.take(16).replace('T', ' '),
                                     fontSize = 11.sp,
@@ -287,20 +320,20 @@ fun StockScreen(
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(text = "โน้ต: ${snap.note}", fontSize = 12.sp, color = TextSecondary)
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 for (item in snap.items) {
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = SurfaceVariantColor,
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = IosGroupedBackground,
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text(text = "สินค้า #${item.productId}", fontSize = 10.sp, color = TextMuted)
-                                            Text(text = "${item.qty} ชิ้น", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                            Text(text = "${item.qty} ชิ้น", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                                         }
                                     }
                                 }
