@@ -44,11 +44,14 @@ android {
 
         val supabaseUrl: String = (project.findProperty("SUPABASE_URL") as? String)?.takeIf { it.isNotBlank() }
             ?: System.getenv("SUPABASE_URL")?.takeIf { it.isNotBlank() }
-            ?: "https://your-project.supabase.co"
+            ?: "https://pafgvntgilogmxfrjamp.supabase.co"
 
         val supabaseAnonKey: String = (project.findProperty("SUPABASE_ANON_KEY") as? String)?.takeIf { it.isNotBlank() }
             ?: System.getenv("SUPABASE_ANON_KEY")?.takeIf { it.isNotBlank() }
-            ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key"
+            ?: ""
+
+        require(supabaseUrl == "https://pafgvntgilogmxfrjamp.supabase.co") { "SUPABASE_URL must point to the Ordernew project" }
+        require(supabaseAnonKey.isNotBlank() && !supabaseAnonKey.contains("dummy")) { "SUPABASE_ANON_KEY is required; configure it in local environment or GitHub Actions secrets" }
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
