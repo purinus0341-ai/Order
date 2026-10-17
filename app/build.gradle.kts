@@ -11,12 +11,21 @@ android {
 
     signingConfigs {
         getByName("debug") {
-            val keystoreFile = file("debug.keystore")
-            if (keystoreFile.exists()) {
-                storeFile = keystoreFile
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+            // Stable signing key supplied by GitHub Actions Secrets.
+            // Never commit the keystore or its passwords to the repository.
+            val keystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
+            val storePass = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            val alias = System.getenv("ANDROID_KEY_ALIAS")
+            val keyPass = System.getenv("ANDROID_KEY_PASSWORD")
+            if (!keystorePath.isNullOrBlank() &&
+                !storePass.isNullOrBlank() &&
+                !alias.isNullOrBlank() &&
+                !keyPass.isNullOrBlank()
+            ) {
+                storeFile = file(keystorePath)
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
             }
         }
     }
