@@ -99,7 +99,8 @@ class PosViewModel(
             } else {
                 _uiState.value = _uiState.value.copy(
                     cartItems = restoredCart,
-                    heldBillId = draft.heldBillId
+                    heldBillId = draft.heldBillId,
+                    heldBillVersion = restoredHeldBillVersion
                 )
             }
         }
