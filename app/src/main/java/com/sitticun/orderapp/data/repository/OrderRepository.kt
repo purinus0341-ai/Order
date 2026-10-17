@@ -115,21 +115,33 @@ class OrderRepository(
             version = if (expectedVersion > 0) expectedVersion + 1 else 1L
         )
 
-        dbHelper.saveHeldBill(heldBill)
-        _heldBills.value = dbHelper.getAllHeldBills()
-        clearDraft()
+        if (existingBillId != null && expectedVersion <= 0L) {
+            return@withContext Result.failure(
+                IllegalArgumentException("ไม่พบเวอร์ชันของบิลพัก กรุณาโหลดรายการบิลพักใหม่ก่อนบันทึก")
+            )
+        }
 
         if (networkMonitor.isOnline) {
             val remoteResult = supabaseClient.saveHeldBill(heldBill, expectedVersion)
-            if (remoteResult.isSuccess) {
-                val newVer = remoteResult.getOrThrow()
-                val updatedBill = heldBill.copy(version = newVer)
-                dbHelper.saveHeldBill(updatedBill)
-                _heldBills.value = dbHelper.getAllHeldBills()
-                return@withContext Result.success(updatedBill)
+            if (remoteResult.isFailure) {
+                return@withContext Result.failure(
+                    remoteResult.exceptionOrNull()
+                        ?: IllegalStateException("บันทึกบิลพักขึ้นคลาวด์ไม่สำเร็จ")
+                )
             }
+
+            val updatedBill = heldBill.copy(version = remoteResult.getOrThrow())
+            dbHelper.saveHeldBill(updatedBill)
+            _heldBills.value = dbHelper.getAllHeldBills()
+            clearDraft()
+            return@withContext Result.success(updatedBill)
         }
 
+        // Offline: preserve the local-first workflow. Online conflicts are never
+        // reported as success and never overwrite the local cache.
+        dbHelper.saveHeldBill(heldBill)
+        _heldBills.value = dbHelper.getAllHeldBills()
+        clearDraft()
         Result.success(heldBill)
     }
 
