@@ -233,7 +233,7 @@ class PosViewModel(
             val pointUses = state.cartItems.filter { it.pointsUsed > 0 }.map { PointUseInput(it.product.id, it.pointsUsed) }
             val freeItems = state.cartItems.filter { it.freeQty > 0 }.map { FreeItemInput(it.product.id, it.freeQty) }
 
-            orderRepository.holdBill(
+            val result = orderRepository.holdBill(
                 customer = cust,
                 note = note,
                 paidQty = paidMap,
