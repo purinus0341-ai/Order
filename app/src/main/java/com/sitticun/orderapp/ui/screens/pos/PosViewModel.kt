@@ -20,6 +20,7 @@ data class PosUiState(
     val customerPointBalances: Map<Long, Long> = emptyMap(),
     val cartItems: List<CartItem> = emptyList(),
     val heldBillId: String? = null,
+    val heldBillVersion: Long? = null,
     val isCheckingOut: Boolean = false,
     val checkoutSuccess: CloudSaleResult? = null,
     val errorMessage: String? = null,
@@ -73,6 +74,10 @@ class PosViewModel(
             val cust = allCustomers.find { it.id == draft.customerId }
             val allProducts = productRepository.products.value
 
+            val restoredHeldBillVersion = draft.heldBillId?.let { id ->
+                orderRepository.heldBills.value.firstOrNull { it.id == id }?.version
+            }
+
             val restoredCart = allProducts.mapNotNull { p ->
                 val paid = draft.paidQty[p.id.toString()] ?: 0
                 val free = draft.freeQty[p.id.toString()] ?: 0
@@ -88,7 +93,8 @@ class PosViewModel(
                     selectedCustomer = cust,
                     customerPointBalances = balances,
                     cartItems = restoredCart,
-                    heldBillId = draft.heldBillId
+                    heldBillId = draft.heldBillId,
+                    heldBillVersion = restoredHeldBillVersion
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
@@ -188,7 +194,8 @@ class PosViewModel(
             cartItems = emptyList(),
             selectedCustomer = null,
             customerPointBalances = emptyMap(),
-            heldBillId = null
+            heldBillId = null,
+            heldBillVersion = null
         )
         orderRepository.clearDraft()
     }
@@ -232,8 +239,22 @@ class PosViewModel(
                 paidQty = paidMap,
                 pointUses = pointUses,
                 freeItems = freeItems,
-                existingBillId = state.heldBillId
+                existingBillId = state.heldBillId,
+                expectedVersion = state.heldBillVersion
+                    ?: state.heldBillId?.let { id ->
+                        orderRepository.heldBills.value.firstOrNull { it.id == id }?.version
+                    }
+                    ?: 0L
             )
+
+            if (result.isFailure) {
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = result.exceptionOrNull()?.message
+                        ?: "บันทึกบิลพักไม่สำเร็จ กรุณาลองใหม่"
+                )
+                return@launch
+            }
+
             clearCart()
         }
     }
@@ -260,6 +281,7 @@ class PosViewModel(
                 customerPointBalances = balances,
                 cartItems = restored,
                 heldBillId = bill.id,
+                heldBillVersion = bill.version,
                 showHeldBillsDialog = false
             )
             autoSaveDraft()
@@ -299,7 +321,8 @@ class PosViewModel(
                     cartItems = emptyList(),
                     selectedCustomer = null,
                     customerPointBalances = emptyMap(),
-                    heldBillId = null
+                    heldBillId = null,
+                    heldBillVersion = null
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
