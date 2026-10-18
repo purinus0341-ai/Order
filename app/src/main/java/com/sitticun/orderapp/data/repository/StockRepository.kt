@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,6 +24,8 @@ class StockRepository(
     private val networkMonitor: NetworkMonitor,
     private val deviceIdProvider: DeviceIdProvider
 ) {
+    private val json = Json { ignoreUnknownKeys = true }
+
     private val _snapshots = MutableStateFlow<List<StockSnapshot>>(emptyList())
     val snapshots: StateFlow<List<StockSnapshot>> = _snapshots.asStateFlow()
 
@@ -107,11 +111,20 @@ class StockRepository(
         if (networkMonitor.isOnline) {
             val remoteRes = supabaseClient.createStockSnapshot(snapshot, idempotencyKey)
             if (remoteRes.isSuccess) {
-                // Trigger line notify in background
                 supabaseClient.notifyStockSnapshot(snapshotId)
                 return@withContext Result.success(snapshot)
             }
         }
+
+        // Offline or network drop: queue in Outbox
+        val payloadJson = json.encodeToString(
+            CreateStockSnapshotRpcPayload(snapshot = snapshot, idempotencyKey = idempotencyKey)
+        )
+        dbHelper.insertOutbox(
+            actionType = "create_stock_snapshot",
+            idempotencyKey = idempotencyKey,
+            payloadJson = payloadJson
+        )
 
         Result.success(snapshot)
     }
@@ -156,15 +169,28 @@ class StockRepository(
 
         if (networkMonitor.isOnline) {
             if (imageBytes != null && !session.imagePath.isNullOrBlank()) {
-                supabaseClient.uploadCountImage(session.imagePath, imageBytes, mimeType)
+                val uploadRes = supabaseClient.uploadCountImage(session.imagePath, imageBytes, mimeType)
+                if (uploadRes.isFailure) {
+                    return@withContext Result.failure(
+                        uploadRes.exceptionOrNull() ?: Exception("อัปโหลดรูปภาพการนับล้มเหลว")
+                    )
+                }
             }
             val saveSessionRes = supabaseClient.saveCountSession(session, 0L)
-            if (saveSessionRes.isSuccess) {
-                for (marker in session.markers) {
-                    supabaseClient.addCountMarker(marker)
-                }
-                return@withContext Result.success(session)
+            if (saveSessionRes.isFailure) {
+                return@withContext Result.failure(
+                    saveSessionRes.exceptionOrNull() ?: Exception("บันทึก Session การนับล้มเหลว")
+                )
             }
+            for (marker in session.markers) {
+                val markerRes = supabaseClient.addCountMarker(marker)
+                if (markerRes.isFailure) {
+                    return@withContext Result.failure(
+                        markerRes.exceptionOrNull() ?: Exception("บันทึกตำแหน่งจุดนับล้มเหลว")
+                    )
+                }
+            }
+            return@withContext Result.success(session)
         }
 
         Result.success(session)

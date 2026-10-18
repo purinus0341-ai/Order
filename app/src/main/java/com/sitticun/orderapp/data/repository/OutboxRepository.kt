@@ -4,14 +4,18 @@ import com.sitticun.orderapp.data.api.SupabaseClient
 import com.sitticun.orderapp.data.local.OrderDatabaseHelper
 import com.sitticun.orderapp.data.local.OutboxTask
 import com.sitticun.orderapp.data.model.CommitSaleRpcPayload
+import com.sitticun.orderapp.data.model.CreateStockSnapshotRpcPayload
 import com.sitticun.orderapp.data.model.OutboxItem
 import com.sitticun.orderapp.data.model.OutboxStatus
 import com.sitticun.orderapp.data.model.VoidOrderRpcPayload
 import com.sitticun.orderapp.util.NetworkMonitor
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -22,6 +26,7 @@ class OutboxRepository(
     private val networkMonitor: NetworkMonitor
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _outboxItems = MutableStateFlow<List<OutboxItem>>(emptyList())
     val outboxItems: StateFlow<List<OutboxItem>> = _outboxItems.asStateFlow()
@@ -31,6 +36,13 @@ class OutboxRepository(
 
     init {
         refreshOutbox()
+        scope.launch {
+            networkMonitor.isOnlineFlow.collect { online ->
+                if (online) {
+                    syncPendingItems()
+                }
+            }
+        }
     }
 
     fun refreshOutbox() {
@@ -50,6 +62,7 @@ class OutboxRepository(
     }
 
     suspend fun syncPendingItems(): Int = withContext(Dispatchers.IO) {
+        refreshOutbox()
         if (!networkMonitor.isOnline) return@withContext 0
         if (_isSyncing.value) return@withContext 0
 
@@ -90,6 +103,16 @@ class OutboxRepository(
                     val req = json.decodeFromString<VoidOrderRpcPayload>(task.payloadJson)
                     val res = supabaseClient.voidOrder(req.orderId, req.idempotencyKey)
                     if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC void_order failed"))
+                }
+                "create_stock_snapshot" -> {
+                    val req = json.decodeFromString<CreateStockSnapshotRpcPayload>(task.payloadJson)
+                    val res = supabaseClient.createStockSnapshot(req.snapshot, req.idempotencyKey)
+                    if (res.isSuccess) {
+                        supabaseClient.notifyStockSnapshot(req.snapshot.id)
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(res.exceptionOrNull() ?: Exception("RPC create_stock_snapshot failed"))
+                    }
                 }
                 else -> Result.failure(Exception("Unknown action type: ${task.actionType}"))
             }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.sitticun.orderapp.OrderApplication
 import com.sitticun.orderapp.data.model.ProductStockComparison
 import com.sitticun.orderapp.data.model.StockSnapshot
+import com.sitticun.orderapp.data.repository.OrderRepository
 import com.sitticun.orderapp.data.repository.ProductRepository
 import com.sitticun.orderapp.data.repository.StockRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +27,8 @@ data class StockUiState(
 
 class StockViewModel(
     private val productRepository: ProductRepository = OrderApplication.instance.productRepository,
-    private val stockRepository: StockRepository = OrderApplication.instance.stockRepository
+    private val stockRepository: StockRepository = OrderApplication.instance.stockRepository,
+    private val orderRepository: OrderRepository = OrderApplication.instance.orderRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StockUiState())
@@ -38,10 +40,11 @@ class StockViewModel(
         loadData()
     }
 
-    fun loadData() {
+    fun loadData(forceRefresh: Boolean = true) {
         viewModelScope.launch {
-            productRepository.loadProducts()
-            stockRepository.loadSnapshots()
+            productRepository.loadProducts(forceRefresh = forceRefresh)
+            orderRepository.loadOrders(forceRefresh = forceRefresh)
+            stockRepository.loadSnapshots(forceRefresh = forceRefresh)
             refreshComparisons()
         }
     }
