@@ -18,6 +18,9 @@ class ProductRepository(
     private val _products = MutableStateFlow<List<Product>>(emptyList())
     val products: StateFlow<List<Product>> = _products.asStateFlow()
 
+    private val _adminProducts = MutableStateFlow<List<Product>>(emptyList())
+    val adminProducts: StateFlow<List<Product>> = _adminProducts.asStateFlow()
+
     suspend fun loadProducts(forceRefresh: Boolean = false): List<Product> = withContext(Dispatchers.IO) {
         val cached = dbHelper.getAllProducts()
         if (cached.isNotEmpty()) {
@@ -29,6 +32,7 @@ class ProductRepository(
             if (remoteResult.isSuccess) {
                 val remoteList = remoteResult.getOrThrow()
                 dbHelper.saveProducts(remoteList)
+                _adminProducts.value = remoteList
                 _products.value = remoteList.filter { it.isActive }
                 return@withContext _products.value
             }
@@ -36,16 +40,24 @@ class ProductRepository(
         _products.value
     }
 
-    suspend fun loadProductsAdmin(): List<Product> = withContext(Dispatchers.IO) {
-        if (networkMonitor.isOnline) {
+    suspend fun loadProductsAdmin(forceRefresh: Boolean = false): List<Product> = withContext(Dispatchers.IO) {
+        val cached = dbHelper.getAllProductsAdmin()
+        if (cached.isNotEmpty()) {
+            _adminProducts.value = cached
+        }
+
+        if (networkMonitor.isOnline && (cached.isEmpty() || forceRefresh)) {
             val remoteResult = supabaseClient.getProducts()
             if (remoteResult.isSuccess) {
                 val remoteList = remoteResult.getOrThrow()
                 dbHelper.saveProducts(remoteList)
+                _adminProducts.value = remoteList
+                _products.value = remoteList.filter { it.isActive }
                 return@withContext remoteList
             }
         }
-        dbHelper.getAllProductsAdmin()
+        _adminProducts.value = dbHelper.getAllProductsAdmin()
+        _adminProducts.value
     }
 
     suspend fun createProduct(product: Product): Result<Unit> = withContext(Dispatchers.IO) {
@@ -53,11 +65,11 @@ class ProductRepository(
         if (networkMonitor.isOnline) {
             val res = supabaseClient.createProduct(product)
             if (res.isSuccess) {
-                loadProducts(true)
+                loadProductsAdmin(true)
             }
             return@withContext res
         }
-        loadProducts()
+        loadProductsAdmin()
         Result.success(Unit)
     }
 
@@ -66,11 +78,11 @@ class ProductRepository(
         if (networkMonitor.isOnline) {
             val res = supabaseClient.updateProduct(product)
             if (res.isSuccess) {
-                loadProducts(true)
+                loadProductsAdmin(true)
             }
             return@withContext res
         }
-        loadProducts()
+        loadProductsAdmin()
         Result.success(Unit)
     }
 }

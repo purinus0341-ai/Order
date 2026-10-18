@@ -355,7 +355,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
     suspend fun getOrders(): Result<List<OrderSummary>> = withContext(Dispatchers.IO) {
         try {
             val response = executeWithRetry(
-                "/rest/v1/orders?select=id,customer_id,customer_name_snapshot,created_at,total_qty,total,status,created_by&deleted_at=is.null&order=created_at.desc"
+                "/rest/v1/orders?select=id,customer_id,customer_name_snapshot,created_at,total_qty,total,status,created_by,order_items(*),order_free_items(*),order_point_uses(*)&deleted_at=is.null&order=created_at.desc"
             )
             val resBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {

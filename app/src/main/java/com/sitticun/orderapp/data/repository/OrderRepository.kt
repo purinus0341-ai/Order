@@ -115,21 +115,32 @@ class OrderRepository(
             version = if (expectedVersion > 0) expectedVersion + 1 else 1L
         )
 
-        dbHelper.saveHeldBill(heldBill)
-        _heldBills.value = dbHelper.getAllHeldBills()
-        clearDraft()
+        if (existingBillId != null && expectedVersion <= 0L) {
+            return@withContext Result.failure(
+                IllegalArgumentException("ไม่พบเวอร์ชันของบิลพัก กรุณาโหลดรายการบิลพักใหม่ก่อนบันทึก")
+            )
+        }
 
         if (networkMonitor.isOnline) {
             val remoteResult = supabaseClient.saveHeldBill(heldBill, expectedVersion)
-            if (remoteResult.isSuccess) {
-                val newVer = remoteResult.getOrThrow()
-                val updatedBill = heldBill.copy(version = newVer)
-                dbHelper.saveHeldBill(updatedBill)
-                _heldBills.value = dbHelper.getAllHeldBills()
-                return@withContext Result.success(updatedBill)
+            if (remoteResult.isFailure) {
+                return@withContext Result.failure(
+                    remoteResult.exceptionOrNull()
+                        ?: IllegalStateException("บันทึกบิลพักขึ้นคลาวด์ไม่สำเร็จ")
+                )
             }
+
+            val updatedBill = heldBill.copy(version = remoteResult.getOrThrow())
+            dbHelper.saveHeldBill(updatedBill)
+            _heldBills.value = dbHelper.getAllHeldBills()
+            clearDraft()
+            return@withContext Result.success(updatedBill)
         }
 
+        // Offline: preserve the local-first workflow.
+        dbHelper.saveHeldBill(heldBill)
+        _heldBills.value = dbHelper.getAllHeldBills()
+        clearDraft()
         Result.success(heldBill)
     }
 
@@ -248,29 +259,11 @@ class OrderRepository(
             }
         )
 
-        dbHelper.saveOrder(localSummary)
-
-        // Optimistically update local point balances
-        for (item in paidItems) {
-            dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
-        }
-        for (u in pointUses) {
-            dbHelper.updatePointBalance(customer.id, u.product.id, -u.pointsUsed)
-        }
-
-        if (heldBillId != null) {
-            dbHelper.deleteHeldBill(heldBillId)
-            _heldBills.value = dbHelper.getAllHeldBills()
-        }
-
-        _orders.value = dbHelper.getAllOrders()
-        clearDraft()
-
         if (networkMonitor.isOnline) {
             val remoteResult = supabaseClient.commitSale(saleOrder, idempotencyKey, deviceId)
             if (remoteResult.isSuccess) {
                 val res = remoteResult.getOrThrow()
-                // Update local balances with authoritative balances from server
+                dbHelper.saveOrder(localSummary)
                 val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
                     pIdStr.toLongOrNull()?.let { pId ->
                         PointBalance(customerId = customer.id, productId = pId, balance = bal)
@@ -279,11 +272,48 @@ class OrderRepository(
                 if (balances.isNotEmpty()) {
                     dbHelper.savePointBalances(customer.id, balances)
                 }
+                if (heldBillId != null) {
+                    dbHelper.deleteHeldBill(heldBillId)
+                    _heldBills.value = dbHelper.getAllHeldBills()
+                }
+                _orders.value = dbHelper.getAllOrders()
+                clearDraft()
                 return@withContext Result.success(res)
+            } else {
+                val err = remoteResult.exceptionOrNull() ?: Exception("บันทึกการขายล้มเหลว")
+                if (hasRedemptions) {
+                    return@withContext Result.failure(err)
+                }
+                val isNetworkIssue = err is java.io.IOException ||
+                        err.message?.contains("Unable to resolve host", ignoreCase = true) == true ||
+                        err.message?.contains("timeout", ignoreCase = true) == true
+                if (!isNetworkIssue) {
+                    return@withContext Result.failure(err)
+                }
             }
         }
 
-        // Queue in Outbox for offline sync (only valid for paid-only orders)
+        // Offline or network drop: queue in Outbox (only valid for paid-only orders)
+        if (hasRedemptions) {
+            return@withContext Result.failure(
+                IllegalStateException("การแลกแต้มหรือรับสินค้าฟรีต้องใช้อินเทอร์เน็ตเพื่อยืนยันแต้มล่าสุด")
+            )
+        }
+
+        dbHelper.saveOrder(localSummary)
+        for (item in paidItems) {
+            dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
+        }
+        for (u in pointUses) {
+            dbHelper.updatePointBalance(customer.id, u.product.id, -u.pointsUsed)
+        }
+        if (heldBillId != null) {
+            dbHelper.deleteHeldBill(heldBillId)
+            _heldBills.value = dbHelper.getAllHeldBills()
+        }
+        _orders.value = dbHelper.getAllOrders()
+        clearDraft()
+
         val payloadJson = json.encodeToString(
             CommitSaleRpcPayload(order = saleOrder, idempotencyKey = idempotencyKey, deviceId = deviceId)
         )
@@ -333,6 +363,16 @@ class OrderRepository(
                 return@withContext Result.success(res)
             }
         }
+
+        // Offline or remote pending: queue in Outbox
+        val payloadJson = json.encodeToString(
+            VoidOrderRpcPayload(orderId = orderId, idempotencyKey = idempotencyKey)
+        )
+        dbHelper.insertOutbox(
+            actionType = "void_order",
+            idempotencyKey = idempotencyKey,
+            payloadJson = payloadJson
+        )
 
         Result.success(
             VoidOrderResult(

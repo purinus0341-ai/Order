@@ -519,41 +519,47 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         }
         db.insertWithOnConflict("cached_orders", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
 
-        db.delete("order_items", "order_id = ?", arrayOf(o.id))
-        for (item in o.items) {
-            val icv = ContentValues().apply {
-                put("id", item.id.ifBlank { "${o.id}:item:${item.productId}" })
-                put("order_id", o.id)
-                put("product_id", item.productId)
-                put("name_snapshot", item.nameSnapshot)
-                put("volume_snapshot", item.volumeSnapshot)
-                put("unit_price", item.unitPrice)
-                put("qty", item.qty)
-                put("subtotal", item.subtotal)
+        if (o.items.isNotEmpty()) {
+            db.delete("order_items", "order_id = ?", arrayOf(o.id))
+            for (item in o.items) {
+                val icv = ContentValues().apply {
+                    put("id", item.id.ifBlank { "${o.id}:item:${item.productId}" })
+                    put("order_id", o.id)
+                    put("product_id", item.productId)
+                    put("name_snapshot", item.nameSnapshot)
+                    put("volume_snapshot", item.volumeSnapshot)
+                    put("unit_price", item.unitPrice)
+                    put("qty", item.qty)
+                    put("subtotal", item.subtotal)
+                }
+                db.insertWithOnConflict("order_items", null, icv, SQLiteDatabase.CONFLICT_REPLACE)
             }
-            db.insertWithOnConflict("order_items", null, icv, SQLiteDatabase.CONFLICT_REPLACE)
         }
 
-        db.delete("order_free_items", "order_id = ?", arrayOf(o.id))
-        for (free in o.freeItems) {
-            val fcv = ContentValues().apply {
-                put("id", free.id.ifBlank { "${o.id}:free:${free.productId}" })
-                put("order_id", o.id)
-                put("product_id", free.productId)
-                put("qty", free.qty)
+        if (o.freeItems.isNotEmpty()) {
+            db.delete("order_free_items", "order_id = ?", arrayOf(o.id))
+            for (free in o.freeItems) {
+                val fcv = ContentValues().apply {
+                    put("id", free.id.ifBlank { "${o.id}:free:${free.productId}" })
+                    put("order_id", o.id)
+                    put("product_id", free.productId)
+                    put("qty", free.qty)
+                }
+                db.insertWithOnConflict("order_free_items", null, fcv, SQLiteDatabase.CONFLICT_REPLACE)
             }
-            db.insertWithOnConflict("order_free_items", null, fcv, SQLiteDatabase.CONFLICT_REPLACE)
         }
 
-        db.delete("order_point_uses", "order_id = ?", arrayOf(o.id))
-        for (u in o.pointUses) {
-            val ucv = ContentValues().apply {
-                put("id", u.id.ifBlank { "${o.id}:use:${u.productId}" })
-                put("order_id", o.id)
-                put("product_id", u.productId)
-                put("points", u.points)
+        if (o.pointUses.isNotEmpty()) {
+            db.delete("order_point_uses", "order_id = ?", arrayOf(o.id))
+            for (u in o.pointUses) {
+                val ucv = ContentValues().apply {
+                    put("id", u.id.ifBlank { "${o.id}:use:${u.productId}" })
+                    put("order_id", o.id)
+                    put("product_id", u.productId)
+                    put("points", u.points)
+                }
+                db.insertWithOnConflict("order_point_uses", null, ucv, SQLiteDatabase.CONFLICT_REPLACE)
             }
-            db.insertWithOnConflict("order_point_uses", null, ucv, SQLiteDatabase.CONFLICT_REPLACE)
         }
     }
 

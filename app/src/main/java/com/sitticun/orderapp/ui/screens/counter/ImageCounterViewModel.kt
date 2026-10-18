@@ -1,6 +1,8 @@
 package com.sitticun.orderapp.ui.screens.counter
 
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,10 +13,12 @@ import com.sitticun.orderapp.data.model.MarkerDot
 import com.sitticun.orderapp.data.model.Product
 import com.sitticun.orderapp.data.repository.ProductRepository
 import com.sitticun.orderapp.data.repository.StockRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 data class ImageCounterUiState(
@@ -113,15 +117,56 @@ class ImageCounterViewModel(
             )
         }
 
-        val session = CountSession(
-            id = sessionId,
-            note = note.trim().ifBlank { null },
-            markers = countMarkers
-        )
-
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, errorMessage = null)
-            val result = stockRepository.saveCountSession(session)
+
+            val (imageBytes, mimeType, imgWidth, imgHeight) = withContext(Dispatchers.IO) {
+                val context = OrderApplication.instance
+                val bytes = state.selectedImageUri?.let { uri ->
+                    try {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val type = state.selectedImageUri?.let { uri ->
+                    context.contentResolver.getType(uri)
+                } ?: "image/jpeg"
+
+                var w: Int? = null
+                var h: Int? = null
+                if (bytes != null) {
+                    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                    if (opts.outWidth > 0 && opts.outHeight > 0) {
+                        w = opts.outWidth
+                        h = opts.outHeight
+                    }
+                }
+                listOf(bytes, type, w, h)
+            }
+
+            @Suppress("UNCHECKED_CAST")
+            val bytes = imageBytes as? ByteArray
+            val type = mimeType as? String ?: "image/jpeg"
+            val ext = if (type.contains("png", ignoreCase = true)) "png" else "jpg"
+            val imagePath = if (bytes != null) "sessions/$sessionId.$ext" else null
+
+            val session = CountSession(
+                id = sessionId,
+                sourceDeviceId = "device-${Build.MODEL}",
+                imagePath = imagePath,
+                imageWidth = imgWidth as? Int,
+                imageHeight = imgHeight as? Int,
+                note = note.trim().ifBlank { null },
+                markers = countMarkers
+            )
+
+            val result = stockRepository.saveCountSession(
+                session = session,
+                imageBytes = bytes,
+                mimeType = type
+            )
             _uiState.value = _uiState.value.copy(isSaving = false)
 
             if (result.isSuccess) {

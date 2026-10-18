@@ -6,6 +6,7 @@ import com.sitticun.orderapp.data.local.OutboxTask
 import com.sitticun.orderapp.data.model.CommitSaleRpcPayload
 import com.sitticun.orderapp.data.model.OutboxItem
 import com.sitticun.orderapp.data.model.OutboxStatus
+import com.sitticun.orderapp.data.model.VoidOrderRpcPayload
 import com.sitticun.orderapp.util.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,6 +85,11 @@ class OutboxRepository(
                     val req = json.decodeFromString<CommitSaleRpcPayload>(task.payloadJson)
                     val res = supabaseClient.commitSale(req.order, req.idempotencyKey, req.deviceId ?: "")
                     if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC commit_sale failed"))
+                }
+                "void_order" -> {
+                    val req = json.decodeFromString<VoidOrderRpcPayload>(task.payloadJson)
+                    val res = supabaseClient.voidOrder(req.orderId, req.idempotencyKey)
+                    if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("RPC void_order failed"))
                 }
                 else -> Result.failure(Exception("Unknown action type: ${task.actionType}"))
             }

@@ -34,7 +34,8 @@ fun OrderHistoryScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val orders by viewModel.orders.collectAsState()
-    val isAdmin = viewModel.isAdmin
+    val currentUser by viewModel.currentUser.collectAsState()
+    val isAdmin = currentUser?.isAdmin == true
 
     val statusOptions = listOf("ทั้งหมด", "สำเร็จ", "ยกเลิกแล้ว")
     val selectedStatusIdx = statusOptions.indexOf(state.selectedStatus).coerceAtLeast(0)

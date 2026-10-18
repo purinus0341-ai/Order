@@ -41,11 +41,22 @@ class CustomersViewModel(
 
     init {
         loadData()
+        viewModelScope.launch {
+            orderRepository.orders.collect { allOrders ->
+                val cust = _uiState.value.selectedCustomer
+                if (cust != null) {
+                    val orders = allOrders.filter { it.customerId == cust.id }
+                    _uiState.value = _uiState.value.copy(customerOrders = orders)
+                }
+            }
+        }
     }
 
     fun loadData() {
         viewModelScope.launch {
-            customerRepository.loadCustomers()
+            launch { customerRepository.loadCustomers() }
+            launch { productRepository.loadProducts() }
+            launch { orderRepository.loadOrders() }
         }
     }
 

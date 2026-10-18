@@ -73,9 +73,9 @@ data class OrderSummary(
     val total: Double,
     val status: String = "completed", // "completed", "voided"
     @SerialName("created_by") val createdBy: String? = null,
-    val items: List<OrderItemRecord> = emptyList(),
-    val freeItems: List<OrderFreeItemRecord> = emptyList(),
-    val pointUses: List<OrderPointUseRecord> = emptyList()
+    @SerialName("order_items") val items: List<OrderItemRecord> = emptyList(),
+    @SerialName("order_free_items") val freeItems: List<OrderFreeItemRecord> = emptyList(),
+    @SerialName("order_point_uses") val pointUses: List<OrderPointUseRecord> = emptyList()
 ) {
     val isVoided: Boolean
         get() = status.equals("voided", ignoreCase = true)
@@ -85,28 +85,28 @@ data class OrderSummary(
 data class OrderItemRecord(
     val id: String = "",
     @SerialName("order_id") val orderId: String = "",
-    @SerialName("product_id") val productId: Long,
-    @SerialName("name_snapshot") val nameSnapshot: String,
+    @SerialName("product_id") val productId: Long = 0L,
+    @SerialName("name_snapshot") val nameSnapshot: String = "",
     @SerialName("volume_snapshot") val volumeSnapshot: String? = null,
-    @SerialName("unit_price") val unitPrice: Double,
-    val qty: Int,
-    val subtotal: Double
+    @SerialName("unit_price") val unitPrice: Double = 0.0,
+    val qty: Int = 0,
+    val subtotal: Double = 0.0
 )
 
 @Serializable
 data class OrderFreeItemRecord(
     val id: String = "",
     @SerialName("order_id") val orderId: String = "",
-    @SerialName("product_id") val productId: Long,
-    val qty: Int
+    @SerialName("product_id") val productId: Long = 0L,
+    val qty: Int = 0
 )
 
 @Serializable
 data class OrderPointUseRecord(
     val id: String = "",
     @SerialName("order_id") val orderId: String = "",
-    @SerialName("product_id") val productId: Long,
-    val points: Int
+    @SerialName("product_id") val productId: Long = 0L,
+    val points: Int = 0
 )
 
 @Serializable

@@ -42,15 +42,25 @@ class AdminViewModel(
 
     val outboxItems = outboxRepository.outboxItems
     val isSyncing = outboxRepository.isSyncing
-    val products = productRepository.products
+    val products = productRepository.adminProducts
 
     init {
         loadUsers()
+        loadProducts()
         checkAppUpdate()
+    }
+
+    fun loadProducts() {
+        viewModelScope.launch {
+            productRepository.loadProductsAdmin(forceRefresh = true)
+        }
     }
 
     fun selectTab(index: Int) {
         _uiState.value = _uiState.value.copy(selectedTab = index)
+        if (index == 1) {
+            loadProducts()
+        }
     }
 
     // --- OUTBOX DIAGNOSTICS ---

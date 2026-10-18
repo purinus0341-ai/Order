@@ -19,6 +19,7 @@ data class HistoryUiState(
     val selectedOrder: OrderSummary? = null,
     val showVoidDialog: Boolean = false,
     val isVoiding: Boolean = false,
+    val isRefreshing: Boolean = false,
     val voidSuccessResponse: VoidOrderResult? = null,
     val errorMessage: String? = null
 )
@@ -38,12 +39,14 @@ class HistoryViewModel(
         get() = currentUser.value?.isAdmin == true
 
     init {
-        loadOrders()
+        loadOrders(forceRefresh = true)
     }
 
-    fun loadOrders() {
+    fun loadOrders(forceRefresh: Boolean = true) {
         viewModelScope.launch {
-            orderRepository.loadOrders()
+            _uiState.value = _uiState.value.copy(isRefreshing = true)
+            orderRepository.loadOrders(forceRefresh = forceRefresh)
+            _uiState.value = _uiState.value.copy(isRefreshing = false)
         }
     }
 
