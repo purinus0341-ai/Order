@@ -2059,11 +2059,10 @@ begin
   where p.user_id = v_user_id
     and p.is_active;
 
+  -- Do not auto-provision or reactivate profiles from a sale RPC.
+  -- An administrator must explicitly create/activate staff accounts.
   if v_role is null then
-    insert into public.profiles (user_id, role, display_name, is_active)
-    values (v_user_id, 'staff', coalesce(auth.jwt() ->> 'email', 'พนักงาน'), true)
-    on conflict (user_id) do update set is_active = true
-    returning role into v_role;
+    raise exception using errcode = 'P0001', message = 'not_authorized';
   end if;
 
   if v_role not in ('admin', 'staff') then
@@ -2479,11 +2478,10 @@ begin
   where p.user_id = v_user_id
     and p.is_active;
 
+  -- Do not auto-provision or reactivate profiles from a sale RPC.
+  -- An administrator must explicitly create/activate staff accounts.
   if v_role is null then
-    insert into public.profiles (user_id, role, display_name, is_active)
-    values (v_user_id, 'staff', coalesce(auth.jwt() ->> 'email', 'พนักงาน'), true)
-    on conflict (user_id) do update set is_active = true
-    returning role into v_role;
+    raise exception using errcode = 'P0001', message = 'not_authorized';
   end if;
 
   if v_role not in ('admin', 'staff') then

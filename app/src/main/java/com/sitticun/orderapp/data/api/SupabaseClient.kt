@@ -151,19 +151,17 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
 
             val userId = session.user?.id
             if (userId.isNullOrBlank()) {
+                preferenceManager.clearSession()
                 return@withContext Result.failure(Exception("ไม่พบ User ID จากระบบ"))
             }
 
             val profileResult = fetchUserProfile(userId)
             if (profileResult.isFailure) {
-                val defaultProfile = UserProfile(
-                    userId = userId,
-                    role = "staff",
-                    displayName = request.email.substringBefore('@'),
-                    isActive = true
+                val profileError = profileResult.exceptionOrNull()
+                preferenceManager.clearSession()
+                return@withContext Result.failure(
+                    profileError ?: Exception("ไม่สามารถตรวจสอบโปรไฟล์ผู้ใช้จากเซิร์ฟเวอร์ได้")
                 )
-                preferenceManager.userProfile = defaultProfile
-                return@withContext Result.success(defaultProfile)
             }
 
             val profile = profileResult.getOrThrow()
