@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build Debug APK (stable signing key required)
     runs-on: ubuntu-latest
 
     steps:
@@ -39,26 +39,30 @@ jobs:
       - name: Make Gradlew Executable
         run: chmod +x ./gradlew || true
 
-      - name: Cache Debug Keystore
-        id: cache-keystore
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
-
-      - name: Generate Debug Keystore if Not Cached
-        if: steps.cache-keystore.outputs.cache-hit != 'true'
+      - name: Validate and decode stable Android signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          mkdir -p ~/.android
-          keytool -genkey -v \
-            -keystore ~/.android/debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required GitHub Actions secret $name is missing. Refusing to generate a replacement signing key."
+              exit 1
+            fi
+          done
+          KEYSTORE_PATH="$RUNNER_TEMP/ordernew-signing.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::Decoded keystore is empty"
+            exit 1
+          fi
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "Stable signing keystore validated (secret values are not printed)."
 
       - name: Determine Version Metadata
         id: version_meta
@@ -67,22 +71,23 @@ jobs:
             RAW_TAG="${{ github.ref_name }}"
             VER_NAME="${RAW_TAG#v}"
             VER_CODE="${{ github.run_number }}"
-            echo "TAG_NAME=${RAW_TAG}" >> $GITHUB_ENV
-            echo "RELEASE_NAME=OrderApp Release ${RAW_TAG}" >> $GITHUB_ENV
+            echo "TAG_NAME=${RAW_TAG}" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=OrderApp Release ${RAW_TAG}" >> "$GITHUB_ENV"
           else
             VER_NAME="1.0.${{ github.run_number }}"
             VER_CODE="${{ github.run_number }}"
-            echo "TAG_NAME=v${VER_NAME}" >> $GITHUB_ENV
-            echo "RELEASE_NAME=OrderApp Build #${{ github.run_number }} (v${VER_NAME})" >> $GITHUB_ENV
+            echo "TAG_NAME=v${VER_NAME}" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=OrderApp Build #${{ github.run_number }} (v${VER_NAME})" >> "$GITHUB_ENV"
           fi
-          echo "APP_VERSION_NAME=${VER_NAME}" >> $GITHUB_ENV
-          echo "APP_VERSION_CODE=${VER_CODE}" >> $GITHUB_ENV
+          echo "APP_VERSION_NAME=${VER_NAME}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=${VER_CODE}" >> "$GITHUB_ENV"
 
       - name: Validate Supabase configuration
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
+          set -euo pipefail
           if [ -z "$SUPABASE_URL" ]; then
             echo "::error::GitHub Actions secret SUPABASE_URL is missing"
             exit 1
@@ -102,20 +107,40 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VERSION_NAME: ${{ env.APP_VERSION_NAME }}
           VERSION_CODE: ${{ env.APP_VERSION_CODE }}
+          ANDROID_KEYSTORE_PATH: ${{ env.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           gradle assembleDebug -PversionName="${{ env.APP_VERSION_NAME }}" -PversionCode="${{ env.APP_VERSION_CODE }}" --stacktrace
 
-      - name: Prepare APK for Artifact & Release
-        id: prepare_apk
+      - name: Verify APK signature and package identity
         run: |
+          set -euo pipefail
           APK_PATH=$(find app/build/outputs/apk/debug/ -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
             echo "::error::No APK found in app/build/outputs/apk/debug/"
             exit 1
           fi
-          echo "Found APK at $APK_PATH"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found in Android SDK Build-Tools"
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK_PATH"
+          echo "APK output found and signature verification completed."
+
+      - name: Prepare APK for Artifact & Release
+        id: prepare_apk
+        run: |
+          set -euo pipefail
+          APK_PATH=$(find app/build/outputs/apk/debug/ -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK found in app/build/outputs/apk/debug/"
+            exit 1
+          fi
           cp "$APK_PATH" OrderApp-debug.apk
-          echo "apk_file=OrderApp-debug.apk" >> $GITHUB_OUTPUT
+          echo "apk_file=OrderApp-debug.apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
@@ -125,7 +150,7 @@ jobs:
           retention-days: 30
 
       - name: Publish APK to GitHub Releases
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
@@ -137,7 +162,7 @@ jobs:
             - **Branch/Ref:** ${{ github.ref_name }}
             - **Platform:** Android (MinSdk 26, TargetSdk 34)
             - **Theme:** Pastel Redesign (Mint / Peach / Lavender)
-            
+
             #### Core Features:
             - Supabase Auth & Profile Active Guard
             - POS Checkout with Free Items & Points Redemption
