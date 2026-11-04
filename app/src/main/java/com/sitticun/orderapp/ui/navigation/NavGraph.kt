@@ -26,6 +26,7 @@ import com.sitticun.orderapp.ui.screens.auth.LoginScreen
 import com.sitticun.orderapp.ui.screens.counter.ImageCounterScreen
 import com.sitticun.orderapp.ui.screens.customers.CustomersScreen
 import com.sitticun.orderapp.ui.screens.history.OrderHistoryScreen
+import com.sitticun.orderapp.ui.screens.notes.NotesScreen
 import com.sitticun.orderapp.ui.screens.pos.PosScreen
 import com.sitticun.orderapp.ui.screens.stock.StockScreen
 import com.sitticun.orderapp.ui.theme.*
@@ -42,6 +43,7 @@ sealed class Screen(
     object Counter : Screen("counter", "นับรูป", Icons.Filled.CameraAlt, Icons.Outlined.CameraAlt)
     object Customers : Screen("customers", "สมาชิก", Icons.Filled.People, Icons.Outlined.People)
     object History : Screen("history", "บิลขาย", Icons.Filled.ReceiptLong, Icons.Outlined.ReceiptLong)
+    object Notes : Screen("notes", "จดโน้ต", Icons.Filled.EditNote, Icons.Outlined.EditNote)
     object Admin : Screen("admin", "ตั้งค่า", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
@@ -51,6 +53,7 @@ val bottomNavItems = listOf(
     Screen.Counter,
     Screen.Customers,
     Screen.History,
+    Screen.Notes,
     Screen.Admin
 )
 
@@ -119,6 +122,10 @@ fun OrderAppNavGraph(
 
             composable(Screen.History.route) {
                 OrderHistoryScreen()
+            }
+
+            composable(Screen.Notes.route) {
+                NotesScreen()
             }
 
             composable(Screen.Admin.route) {

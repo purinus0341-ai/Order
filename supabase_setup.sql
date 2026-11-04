@@ -2980,3 +2980,25 @@ set name = excluded.name,
     updated_at = now();
 
 
+-- ---------------------------------------------------------
+-- MIGRATION: 202611040001_notes_system.sql
+-- ---------------------------------------------------------
+create table if not exists public.notes (
+  id text primary key,
+  title text not null,
+  content text not null,
+  is_pinned boolean not null default false,
+  created_by uuid references auth.users(id),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.notes enable row level security;
+revoke all on table public.notes from anon;
+grant select, insert, update, delete on table public.notes to authenticated;
+
+create policy notes_all_authenticated
+on public.notes
+for all
+to authenticated
+using (public.current_app_role() in ('admin', 'staff'))
+with check (public.current_app_role() in ('admin', 'staff'));

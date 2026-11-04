@@ -180,6 +180,18 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
             )
         """.trimIndent())
 
+        
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS notes (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                is_pinned INTEGER DEFAULT 0,
+                created_by TEXT,
+                updated_at TEXT
+            )
+        """.trimIndent())
+
         // Insert default initial products from OrderApp
         seedInitialProducts(db)
     }
@@ -199,6 +211,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         db.execSQL("DROP TABLE IF EXISTS stock_snapshot_items")
         db.execSQL("DROP TABLE IF EXISTS count_sessions")
         db.execSQL("DROP TABLE IF EXISTS count_markers")
+        db.execSQL("DROP TABLE IF EXISTS notes")
         onCreate(db)
     }
 
@@ -1093,9 +1106,79 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         writableDatabase.delete("outbox", "id = ?", arrayOf(id.toString()))
     }
 
+    // -------------------------------------------------------------
+    // NOTES
+    // -------------------------------------------------------------
+    fun getAllNotes(): List<NoteModel> {
+        val list = mutableListOf<NoteModel>()
+        val db = readableDatabase
+        val cursor = db.query(
+            "notes",
+            null,
+            null,
+            null,
+            null,
+            null,
+            "is_pinned DESC, updated_at DESC"
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    NoteModel(
+                        id = it.getString(it.getColumnIndexOrThrow("id")),
+                        title = it.getString(it.getColumnIndexOrThrow("title")),
+                        content = it.getString(it.getColumnIndexOrThrow("content")),
+                        isPinned = it.getInt(it.getColumnIndexOrThrow("is_pinned")) == 1,
+                        createdBy = it.getString(it.getColumnIndexOrThrow("created_by")),
+                        updatedAt = it.getString(it.getColumnIndexOrThrow("updated_at")).orEmpty()
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun upsertNote(note: NoteModel) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put("id", note.id)
+            put("title", note.title)
+            put("content", note.content)
+            put("is_pinned", if (note.isPinned) 1 else 0)
+            put("created_by", note.createdBy)
+            put("updated_at", note.updatedAt)
+        }
+        db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun saveNotes(notes: List<NoteModel>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (n in notes) {
+                val cv = ContentValues().apply {
+                    put("id", n.id)
+                    put("title", n.title)
+                    put("content", n.content)
+                    put("is_pinned", if (n.isPinned) 1 else 0)
+                    put("created_by", n.createdBy)
+                    put("updated_at", n.updatedAt)
+                }
+                db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun deleteNote(id: String) {
+        writableDatabase.delete("notes", "id = ?", arrayOf(id))
+    }
+
     companion object {
         const val DATABASE_NAME = "order_app.db"
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 3
     }
 }
 
