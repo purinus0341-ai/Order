@@ -24,6 +24,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Protect test build branch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/chore/ordernew-stable-keystore" ]; then
+            echo "::error::Test builds must be dispatched from chore/ordernew-stable-keystore. No build, commit, push, or release was performed."
+            exit 1
+          fi
+
       - name: Generate & Patch Notes System Files
         run: |
           set -e
@@ -6035,7 +6044,7 @@ jobs:
           retention-days: 30
 
       - name: Publish APK to GitHub Releases
-        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
