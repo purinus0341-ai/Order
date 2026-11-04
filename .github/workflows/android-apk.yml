@@ -28,6 +28,8 @@ jobs:
   recover_debug_keystore:
     name: Recover legacy debug keystore certificate (read-only)
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'recover-debug-keystore'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Protect test branch
