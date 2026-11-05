@@ -27,6 +27,7 @@ import com.sitticun.orderapp.ui.theme.*
 @Composable
 fun HeldBillsDialog(
     heldBills: List<HeldBill>,
+    pendingHeldBills: Map<String, Pair<String, Boolean>>,
     onResumeBill: (HeldBill) -> Unit,
     onDeleteBill: (HeldBill) -> Unit,
     onDismiss: () -> Unit
@@ -138,6 +139,14 @@ fun HeldBillsDialog(
                                         )
                                     }
 
+                                    pendingHeldBills[bill.id]?.let { pending ->
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = if (pending.second) "รอตรวจสอบผลการซิงก์" else "รอซิงก์เมื่อออนไลน์",
+                                            fontSize = 12.sp,
+                                            color = StatusDanger
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.height(10.dp))
 
                                     Row(

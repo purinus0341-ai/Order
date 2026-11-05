@@ -48,11 +48,16 @@ class OrderRepository(
     private val _orders = MutableStateFlow<List<OrderSummary>>(emptyList())
     val orders: StateFlow<List<OrderSummary>> = _orders.asStateFlow()
 
+    private val _pendingHeldBills = MutableStateFlow<Map<String, Pair<String, Boolean>>>(emptyMap())
+    val pendingHeldBills = _pendingHeldBills.asStateFlow()
+    private fun refreshPendingHeldBills() { _pendingHeldBills.value = dbHelper.pendingHeldBills() }
+
     private val _heldBills = MutableStateFlow<List<HeldBill>>(emptyList())
     val heldBills: StateFlow<List<HeldBill>> = _heldBills.asStateFlow()
 
     init {
         _heldBills.value = dbHelper.getAllHeldBills()
+        refreshPendingHeldBills()
         _orders.value = dbHelper.getAllOrders()
         heldScope.launch { networkMonitor.isOnlineFlow.collect { if (it) syncPendingHeldBills() } }
     }
@@ -103,6 +108,7 @@ class OrderRepository(
                 }
             }
             _heldBills.value = dbHelper.getAllHeldBills()
+            refreshPendingHeldBills()
         }
     }
 
@@ -180,6 +186,7 @@ class OrderRepository(
         val owner = preferenceManager.userProfile?.userId
         if (!preferenceManager.isLoggedIn || owner.isNullOrBlank()) return@withContext Result.failure(IllegalStateException("กรุณาเข้าสู่ระบบก่อนพักบิล"))
         dbHelper.inTransaction { dbHelper.saveHeldBill(heldBill); dbHelper.queueHeldBill(heldBill.id, owner) }
+        refreshPendingHeldBills()
         _heldBills.value = dbHelper.getAllHeldBills()
         clearDraft()
         Result.success(heldBill)

@@ -121,7 +121,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          gradle assembleDebug -PversionName="${{ env.APP_VERSION_NAME }}" -PversionCode="${{ env.APP_VERSION_CODE }}" --stacktrace
+          gradle testDebugUnitTest assembleDebug -PversionName="${{ env.APP_VERSION_NAME }}" -PversionCode="${{ env.APP_VERSION_CODE }}" --stacktrace
 
       - name: Verify APK signature and package identity
         run: |

@@ -35,6 +35,7 @@ fun PosScreen(
     val products by viewModel.products.collectAsState()
     val customers by viewModel.customers.collectAsState()
     val heldBills by viewModel.heldBills.collectAsState()
+    val pendingHeldBills by viewModel.pendingHeldBills.collectAsState()
 
     val outboxItems by OrderApplication.instance.outboxRepository.outboxItems.collectAsState()
     val isSyncing by OrderApplication.instance.outboxRepository.isSyncing.collectAsState()
@@ -81,6 +82,7 @@ fun PosScreen(
     if (state.showHeldBillsDialog) {
         HeldBillsDialog(
             heldBills = heldBills,
+            pendingHeldBills = pendingHeldBills,
             onResumeBill = { viewModel.resumeHeldBill(it) },
             onDeleteBill = { viewModel.deleteHeldBill(it) },
             onDismiss = { viewModel.toggleHeldBillsDialog(false) }

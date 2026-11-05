@@ -57,6 +57,7 @@ class PosViewModel(
     val products = productRepository.products
     val customers = customerRepository.customers
     val heldBills = orderRepository.heldBills
+    val pendingHeldBills = orderRepository.pendingHeldBills
 
     init {
         viewModelScope.launch {
@@ -291,7 +292,10 @@ class PosViewModel(
 
     fun deleteHeldBill(bill: HeldBill) {
         viewModelScope.launch {
-            orderRepository.deleteHeldBill(bill.id, bill.version)
+            val result = orderRepository.deleteHeldBill(bill.id, bill.version)
+            if (result.isFailure) {
+                _uiState.value = _uiState.value.copy(errorMessage = result.exceptionOrNull()?.message ?: "ลบบิลพักไม่สำเร็จ")
+            }
         }
     }
 

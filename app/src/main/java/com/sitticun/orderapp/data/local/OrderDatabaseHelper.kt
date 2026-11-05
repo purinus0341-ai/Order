@@ -766,7 +766,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
             put("updated_by", bill.updatedBy)
             put("version", bill.version)
         }
-        db.insertWithOnConflict("held_bills", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        check(db.insertWithOnConflict("held_bills", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "Failed to save held bill" }
     }
 
     fun queueHeldBill(id: String, owner: String) {
