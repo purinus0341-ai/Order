@@ -145,7 +145,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Testing
-    testImplementation("org.robolectric:robolectric:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.13")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
