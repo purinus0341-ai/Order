@@ -11,68 +11,13 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      task:
-        description: 'เลือกงานที่ต้องการทำ'
-        required: true
-        default: 'build-apk'
-        type: choice
-        options:
-          - 'build-apk'
-          - 'recover-debug-keystore'
 
 permissions:
   contents: write
 
 jobs:
-  recover_debug_keystore:
-    name: Recover legacy debug keystore certificate (read-only)
-    if: github.event_name == 'workflow_dispatch' && inputs.task == 'recover-debug-keystore'
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - name: Protect test branch
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/chore/ordernew-stable-keystore" ]; then
-            echo "::error::Recovery is allowed only on chore/ordernew-stable-keystore."
-            exit 1
-          fi
-
-      - name: Restore legacy Android debug keystore cache (read-only)
-        id: restore_legacy
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
-
-      - name: Inspect recovered certificate without exporting private key
-        run: |
-          set -euo pipefail
-          KEYSTORE="$HOME/.android/debug.keystore"
-          if [ ! -s "$KEYSTORE" ]; then
-            echo "::error::Legacy cache key android-debug-keystore-v1 was not found or did not contain debug.keystore. No key was generated or modified."
-            exit 1
-          fi
-          echo "Legacy keystore cache restored. Cache hit: ${{ steps.restore_legacy.outputs.cache-hit }}"
-          echo "Alias and certificate metadata:"
-          keytool -list -v -keystore "$KEYSTORE" -storepass android -alias androiddebugkey | grep -E '^(Alias name:|Creation date:|Entry type:|Owner:|Issuer:|Serial number:|Valid from:|Certificate fingerprints:|[[:space:]]+SHA1:|[[:space:]]+SHA256:)'
-          CERT_SHA256="$(keytool -exportcert -keystore "$KEYSTORE" -storepass android -alias androiddebugkey 2>/dev/null | sha256sum | awk '{print toupper($1)}')"
-          echo "CERT_SHA256=$CERT_SHA256" >> "$GITHUB_OUTPUT"
-          echo "Certificate SHA-256 (DER): $CERT_SHA256"
-          {
-            echo "### Legacy Android debug keystore certificate"
-            echo "- Cache key: android-debug-keystore-v1"
-            echo "- Cache hit: ${{ steps.restore_legacy.outputs.cache-hit }}"
-            echo "- Alias: androiddebugkey"
-            echo "- Certificate SHA-256 (DER): `$CERT_SHA256`"
-            echo "- Private keystore: not uploaded, printed, or modified."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   build:
     name: Build Debug APK (stable signing key required)
-    if: github.event_name != 'workflow_dispatch' || inputs.task != 'recover-debug-keystore'
     runs-on: ubuntu-latest
 
     steps:
