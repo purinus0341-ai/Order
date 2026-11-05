@@ -161,11 +161,11 @@ language sql
 stable
 security definer
 set search_path = public, pg_temp
-as $$
+as $
   select p.role
   from public.profiles as p
   where p.user_id = auth.uid();
-$$;
+$;
 
 create or replace function public.is_admin()
 returns boolean
@@ -173,9 +173,9 @@ language sql
 stable
 security definer
 set search_path = public, pg_temp
-as $$
+as $
   select coalesce(public.current_app_role() = 'admin', false);
-$$;
+$;
 
 revoke all on function public.current_app_role() from public;
 revoke all on function public.is_admin() from public;
@@ -363,7 +363,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -675,7 +675,7 @@ begin
     'idempotent_replay', false
   );
 end;
-$$;
+$;
 
 revoke all on function public.commit_sale(jsonb, text, text) from public;
 grant execute on function public.commit_sale(jsonb, text, text) to authenticated;
@@ -695,7 +695,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -831,7 +831,7 @@ begin
     'idempotent_replay', false
   );
 end;
-$$;
+$;
 
 revoke all on function public.void_order(text, text) from public;
 grant execute on function public.void_order(text, text) to authenticated;
@@ -860,7 +860,7 @@ returns public.customers
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -892,7 +892,7 @@ begin
 
   return v_customer;
 end;
-$$;
+$;
 
 create or replace function public.save_held_bill(
   p_bill jsonb,
@@ -902,7 +902,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -986,7 +986,7 @@ begin
 
   return jsonb_build_object('id', v_id, 'version', v_version);
 end;
-$$;
+$;
 
 create or replace function public.delete_held_bill(
   p_id text,
@@ -996,7 +996,7 @@ returns void
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1025,7 +1025,7 @@ begin
     raise exception using errcode = '40001', message = 'held_bill_version_conflict';
   end if;
 end;
-$$;
+$;
 
 create or replace function public.create_stock_snapshot(
   p_snapshot jsonb,
@@ -1035,7 +1035,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1123,7 +1123,7 @@ begin
 
   return jsonb_build_object('snapshot_id', v_id, 'idempotent_replay', false);
 end;
-$$;
+$;
 
 create or replace function public.save_count_session(
   p_session jsonb,
@@ -1133,7 +1133,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1212,7 +1212,7 @@ begin
 
   return jsonb_build_object('id', v_id, 'version', v_version);
 end;
-$$;
+$;
 
 create or replace function public.add_count_marker(
   p_marker jsonb
@@ -1221,7 +1221,7 @@ returns public.count_markers
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1267,7 +1267,7 @@ begin
 
   return v_marker;
 end;
-$$;
+$;
 
 create or replace function public.delete_count_marker(
   p_id text
@@ -1276,7 +1276,7 @@ returns void
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1301,7 +1301,7 @@ begin
   set deleted_at = coalesce(deleted_at, now())
   where id = v_id;
 end;
-$$;
+$;
 
 revoke all on function public.create_customer(text, text) from public;
 revoke all on function public.save_held_bill(jsonb, bigint) from public;
@@ -1388,7 +1388,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1701,14 +1701,14 @@ begin
       raise exception using errcode = 'P0001', message = 'unsupported_legacy_kind';
   end case;
 end;
-$$;
+$;
 
 create or replace function public.verify_legacy_import(p_manifest jsonb)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1770,7 +1770,7 @@ begin
 
   return v_result;
 end;
-$$;
+$;
 
 revoke all on function public.import_legacy_record(text, jsonb, text) from public;
 revoke all on function public.verify_legacy_import(jsonb) from public;
@@ -1793,7 +1793,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1892,7 +1892,7 @@ begin
 
   return jsonb_build_object('id', v_id, 'version', v_version);
 end;
-$$;
+$;
 
 create or replace function public.add_count_marker(
   p_marker jsonb
@@ -1901,7 +1901,7 @@ returns public.count_markers
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -1970,7 +1970,7 @@ begin
 
   return v_marker;
 end;
-$$;
+$;
 
 revoke all on function public.save_count_session(jsonb, bigint) from public;
 revoke all on function public.add_count_marker(jsonb) from public;
@@ -1992,12 +1992,12 @@ language sql
 stable
 security definer
 set search_path = public, pg_temp
-as $$
+as $
   select p.role
   from public.profiles as p
   where p.user_id = auth.uid()
     and p.is_active;
-$$;
+$;
 
 revoke all on function public.current_app_role() from public;
 grant execute on function public.current_app_role() to authenticated;
@@ -2019,7 +2019,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -2417,7 +2417,7 @@ begin
     'idempotent_replay', false
   );
 end;
-$$;
+$;
 
 revoke all on function public.commit_sale(jsonb, text, text) from public;
 grant execute on function public.commit_sale(jsonb, text, text) to authenticated;
@@ -2439,7 +2439,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_user_id uuid := auth.uid();
   v_role text;
@@ -2838,7 +2838,7 @@ begin
     'idempotent_replay', false
   );
 end;
-$$;
+$;
 
 revoke all on function public.commit_sale(jsonb, text, text) from public;
 grant execute on function public.commit_sale(jsonb, text, text) to authenticated;
@@ -2890,7 +2890,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $$
+as $
 declare
   v_snapshot_id text := btrim(coalesce(p_snapshot_id, ''));
   v_group_id text := btrim(coalesce(p_group_id, ''));
@@ -2953,7 +2953,7 @@ begin
     'attempts', v_attempts
   );
 end;
-$$;
+$;
 
 revoke all on function public.claim_line_stock_notification(text, text)
 from public, anon, authenticated;
@@ -2980,3 +2980,25 @@ set name = excluded.name,
     updated_at = now();
 
 
+-- ---------------------------------------------------------
+-- MIGRATION: 202611040001_notes_system.sql
+-- ---------------------------------------------------------
+create table if not exists public.notes (
+  id text primary key,
+  title text not null,
+  content text not null,
+  is_pinned boolean not null default false,
+  created_by uuid references auth.users(id),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.notes enable row level security;
+revoke all on table public.notes from anon;
+grant select, insert, update, delete on table public.notes to authenticated;
+
+create policy notes_all_authenticated
+on public.notes
+for all
+to authenticated
+using (public.current_app_role() in ('admin', 'staff'))
+with check (public.current_app_role() in ('admin', 'staff'));

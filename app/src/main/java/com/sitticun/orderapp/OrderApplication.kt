@@ -35,6 +35,8 @@ class OrderApplication : Application() {
         private set
     lateinit var updateRepository: UpdateRepository
         private set
+    lateinit var noteRepository: NoteRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -65,6 +67,7 @@ class OrderApplication : Application() {
         )
         outboxRepository = OutboxRepository(supabaseClient, databaseHelper, networkMonitor)
         updateRepository = UpdateRepository()
+        noteRepository = NoteRepository(supabaseClient, databaseHelper, preferenceManager, networkMonitor)
     }
 
     companion object {

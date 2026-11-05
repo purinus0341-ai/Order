@@ -156,14 +156,8 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
 
             val profileResult = fetchUserProfile(userId)
             if (profileResult.isFailure) {
-                val defaultProfile = UserProfile(
-                    userId = userId,
-                    role = "staff",
-                    displayName = request.email.substringBefore('@'),
-                    isActive = true
-                )
-                preferenceManager.userProfile = defaultProfile
-                return@withContext Result.success(defaultProfile)
+                preferenceManager.clearSession()
+                return@withContext Result.failure(profileResult.exceptionOrNull() ?: Exception("ตรวจสอบบัญชีผู้ใช้ไม่สำเร็จ"))
             }
 
             val profile = profileResult.getOrThrow()
@@ -617,6 +611,56 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
             )
             if (!response.isSuccessful) {
                 return@withContext Result.failure(Exception("บันทึก Marker ล้มเหลว: ${response.body?.string()}"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // -------------------------------------------------------------
+    // NOTES
+    // -------------------------------------------------------------
+    suspend fun getNotes(): Result<List<NoteModel>> = withContext(Dispatchers.IO) {
+        try {
+            val response = executeWithRetry("/rest/v1/notes?select=id,title,content,is_pinned,created_by,updated_at&order=is_pinned.desc,updated_at.desc")
+            val resBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("ดึงข้อมูลโน้ตล้มเหลว: $resBody"))
+            }
+            val list = json.decodeFromString<List<NoteModel>>(resBody)
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun upsertNote(note: NoteModel): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val body = json.encodeToString(note).toRequestBody(jsonMediaType)
+            val response = executeWithRetry(
+                endpoint = "/rest/v1/notes",
+                method = "POST",
+                body = body,
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("บันทึกโน้ตล้มเหลว: ${response.body?.string()}"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteNote(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = executeWithRetry(
+                endpoint = "/rest/v1/notes?id=eq.$id",
+                method = "DELETE"
+            )
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("ลบโน้ตล้มเหลว: ${response.body?.string()}"))
             }
             Result.success(Unit)
         } catch (e: Exception) {

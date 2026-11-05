@@ -137,21 +137,17 @@ class OrderRepository(
             return@withContext Result.success(updatedBill)
         }
 
-        // Offline: preserve the local-first workflow.
-        dbHelper.saveHeldBill(heldBill)
-        _heldBills.value = dbHelper.getAllHeldBills()
-        clearDraft()
-        Result.success(heldBill)
+        Result.failure(IllegalStateException("บันทึกบิลพักต้องเชื่อมต่ออินเทอร์เน็ต กรุณาลองใหม่เมื่อออนไลน์"))
     }
 
     suspend fun deleteHeldBill(id: String, expectedVersion: Long): Result<Unit> = withContext(Dispatchers.IO) {
-        dbHelper.deleteHeldBill(id)
-        _heldBills.value = dbHelper.getAllHeldBills()
-
-        if (networkMonitor.isOnline) {
-            return@withContext supabaseClient.deleteHeldBill(id, expectedVersion)
+        if (!networkMonitor.isOnline) return@withContext Result.failure(IllegalStateException("ลบบิลพักต้องเชื่อมต่ออินเทอร์เน็ต"))
+        val result = supabaseClient.deleteHeldBill(id, expectedVersion)
+        if (result.isSuccess) {
+            dbHelper.deleteHeldBill(id)
+            _heldBills.value = dbHelper.getAllHeldBills()
         }
-        Result.success(Unit)
+        result
     }
 
     // -------------------------------------------------------------
@@ -300,28 +296,20 @@ class OrderRepository(
             )
         }
 
-        dbHelper.saveOrder(localSummary)
-        for (item in paidItems) {
-            dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
-        }
-        for (u in pointUses) {
-            dbHelper.updatePointBalance(customer.id, u.product.id, -u.pointsUsed)
-        }
-        if (heldBillId != null) {
-            dbHelper.deleteHeldBill(heldBillId)
-            _heldBills.value = dbHelper.getAllHeldBills()
-        }
-        _orders.value = dbHelper.getAllOrders()
-        clearDraft()
-
         val payloadJson = json.encodeToString(
             CommitSaleRpcPayload(order = saleOrder, idempotencyKey = idempotencyKey, deviceId = deviceId)
         )
-        dbHelper.insertOutbox(
-            actionType = "commit_sale",
-            idempotencyKey = idempotencyKey,
-            payloadJson = payloadJson
-        )
+        dbHelper.inTransaction {
+            dbHelper.saveOrder(localSummary)
+            for (item in paidItems) {
+                dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
+            }
+            if (heldBillId != null) dbHelper.deleteHeldBill(heldBillId)
+            dbHelper.insertOutbox("commit_sale", idempotencyKey, payloadJson)
+        }
+        if (heldBillId != null) _heldBills.value = dbHelper.getAllHeldBills()
+        _orders.value = dbHelper.getAllOrders()
+        clearDraft()
 
         Result.success(
             CloudSaleResult(
@@ -344,43 +332,19 @@ class OrderRepository(
             return@withContext Result.failure(Exception("บิลนี้ถูกยกเลิกแล้ว"))
         }
 
-        val idempotencyKey = "void:${target.id}"
-        dbHelper.markOrderVoided(orderId)
-        _orders.value = dbHelper.getAllOrders()
-
-        if (networkMonitor.isOnline) {
-            val remoteResult = supabaseClient.voidOrder(orderId, idempotencyKey)
-            if (remoteResult.isSuccess) {
-                val res = remoteResult.getOrThrow()
-                val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
-                    pIdStr.toLongOrNull()?.let { pId ->
-                        PointBalance(customerId = target.customerId, productId = pId, balance = bal)
-                    }
-                }
-                if (balances.isNotEmpty()) {
-                    dbHelper.savePointBalances(target.customerId, balances)
-                }
-                return@withContext Result.success(res)
-            }
+        if (!networkMonitor.isOnline) {
+            return@withContext Result.failure(IllegalStateException("ยกเลิกบิลต้องเชื่อมต่ออินเทอร์เน็ต"))
         }
-
-        // Offline or remote pending: queue in Outbox
-        val payloadJson = json.encodeToString(
-            VoidOrderRpcPayload(orderId = orderId, idempotencyKey = idempotencyKey)
-        )
-        dbHelper.insertOutbox(
-            actionType = "void_order",
-            idempotencyKey = idempotencyKey,
-            payloadJson = payloadJson
-        )
-
-        Result.success(
-            VoidOrderResult(
-                orderId = orderId,
-                status = "voided",
-                idempotentReplay = false
-            )
-        )
+        val remoteResult = supabaseClient.voidOrder(orderId, "void:${target.id}")
+        if (remoteResult.isFailure) return@withContext remoteResult
+        val res = remoteResult.getOrThrow()
+        dbHelper.markOrderVoided(orderId)
+        val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
+            pIdStr.toLongOrNull()?.let { pId -> PointBalance(customerId = target.customerId, productId = pId, balance = bal) }
+        }
+        if (balances.isNotEmpty()) dbHelper.savePointBalances(target.customerId, balances)
+        _orders.value = dbHelper.getAllOrders()
+        Result.success(res)
     }
 
     suspend fun loadOrders(forceRefresh: Boolean = false): List<OrderSummary> = withContext(Dispatchers.IO) {

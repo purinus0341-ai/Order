@@ -180,26 +180,36 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
             )
         """.trimIndent())
 
+
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS notes (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                is_pinned INTEGER DEFAULT 0,
+                created_by TEXT,
+                updated_at TEXT
+            )
+        """.trimIndent())
+
+        createPendingNotesTable(db)
+
         // Insert default initial products from OrderApp
         seedInitialProducts(db)
     }
 
+    private fun createPendingNotesTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS outbox")
-        db.execSQL("DROP TABLE IF EXISTS held_bills")
-        db.execSQL("DROP TABLE IF EXISTS cached_products")
-        db.execSQL("DROP TABLE IF EXISTS cached_customers")
-        db.execSQL("DROP TABLE IF EXISTS point_balances")
-        db.execSQL("DROP TABLE IF EXISTS point_ledger")
-        db.execSQL("DROP TABLE IF EXISTS cached_orders")
-        db.execSQL("DROP TABLE IF EXISTS order_items")
-        db.execSQL("DROP TABLE IF EXISTS order_free_items")
-        db.execSQL("DROP TABLE IF EXISTS order_point_uses")
-        db.execSQL("DROP TABLE IF EXISTS stock_snapshots")
-        db.execSQL("DROP TABLE IF EXISTS stock_snapshot_items")
-        db.execSQL("DROP TABLE IF EXISTS count_sessions")
-        db.execSQL("DROP TABLE IF EXISTS count_markers")
-        onCreate(db)
+        if (oldVersion < 5) createPendingNotesTable(db)
+        if (oldVersion < 3) {
+            db.execSQL("""CREATE TABLE IF NOT EXISTS notes (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
+                is_pinned INTEGER DEFAULT 0, created_by TEXT, updated_at TEXT
+            )""".trimIndent())
+        }
     }
 
     private fun seedInitialProducts(db: SQLiteDatabase) {
@@ -757,7 +767,6 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.delete("held_bills", null, null)
             for (b in bills) {
                 val cv = ContentValues().apply {
                     put("id", b.id)
@@ -995,6 +1004,18 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
     // -------------------------------------------------------------
     // OUTBOX
     // -------------------------------------------------------------
+    fun <T> inTransaction(block: () -> T): T {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val result = block()
+            db.setTransactionSuccessful()
+            return result
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun insertOutbox(actionType: String, idempotencyKey: String, payloadJson: String): Long {
         val db = writableDatabase
         val cv = ContentValues().apply {
@@ -1005,7 +1026,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
             put("status", "PENDING")
             put("retry_count", 0)
         }
-        return db.insertWithOnConflict("outbox", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        return db.insertWithOnConflict("outbox", null, cv, SQLiteDatabase.CONFLICT_REPLACE).also { check(it != -1L) { "Failed to queue outbox item" } }
     }
 
     fun getPendingOutbox(): List<OutboxTask> {
@@ -1014,7 +1035,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         val cursor = db.query(
             "outbox",
             null,
-            "status IN ('PENDING', 'FAILED')",
+            "status IN ('PENDING', 'FAILED', 'SYNCING')",
             null,
             null,
             null,
@@ -1093,9 +1114,96 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         writableDatabase.delete("outbox", "id = ?", arrayOf(id.toString()))
     }
 
+    // -------------------------------------------------------------
+    // NOTES
+    // -------------------------------------------------------------
+    fun getAllNotes(): List<NoteModel> {
+        val list = mutableListOf<NoteModel>()
+        val db = readableDatabase
+        val cursor = db.query(
+            "notes",
+            null,
+            null,
+            null,
+            null,
+            null,
+            "is_pinned DESC, updated_at DESC"
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    NoteModel(
+                        id = it.getString(it.getColumnIndexOrThrow("id")),
+                        title = it.getString(it.getColumnIndexOrThrow("title")),
+                        content = it.getString(it.getColumnIndexOrThrow("content")),
+                        isPinned = it.getInt(it.getColumnIndexOrThrow("is_pinned")) == 1,
+                        createdBy = it.getString(it.getColumnIndexOrThrow("created_by")),
+                        updatedAt = it.getString(it.getColumnIndexOrThrow("updated_at")).orEmpty()
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun upsertNote(note: NoteModel) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put("id", note.id)
+            put("title", note.title)
+            put("content", note.content)
+            put("is_pinned", if (note.isPinned) 1 else 0)
+            put("created_by", note.createdBy)
+            put("updated_at", note.updatedAt)
+        }
+        db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun saveNotes(notes: List<NoteModel>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (n in notes) {
+                val cv = ContentValues().apply {
+                    put("id", n.id)
+                    put("title", n.title)
+                    put("content", n.content)
+                    put("is_pinned", if (n.isPinned) 1 else 0)
+                    put("created_by", n.createdBy)
+                    put("updated_at", n.updatedAt)
+                }
+                db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun queueNote(id: String, operation: String) {
+        val values = ContentValues().apply { put("note_id", id); put("operation", operation) }
+        check(writableDatabase.insertWithOnConflict("pending_notes", null, values, SQLiteDatabase.CONFLICT_REPLACE) != -1L)
+    }
+
+    fun pendingNotes(): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        readableDatabase.rawQuery("SELECT note_id, operation FROM pending_notes", null).use { cursor ->
+            while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1)
+        }
+        return result
+    }
+
+    fun clearPendingNote(id: String) {
+        writableDatabase.delete("pending_notes", "note_id = ?", arrayOf(id))
+    }
+
+    fun deleteNote(id: String) {
+        writableDatabase.delete("notes", "id = ?", arrayOf(id))
+    }
+
     companion object {
         const val DATABASE_NAME = "order_app.db"
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 5
     }
 }
 
