@@ -34,6 +34,7 @@ fun NotesScreen(
     val notes by viewModel.filteredNotes.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val pendingCount by viewModel.pendingCount.collectAsState()
 
     var showEditorDialog by remember { mutableStateOf(false) }
     var editingNote by remember { mutableStateOf<NoteModel?>(null) }
@@ -45,6 +46,13 @@ fun NotesScreen(
             .background(IosGroupedBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (pendingCount > 0) {
+                Text(
+                    text = "มีโน้ต $pendingCount รายการรอซิงก์",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = TextPrimary
+                )
+            }
             IosNavigationHeader(
                 title = "สมุดโน้ต",
                 subtitle = "จดบันทึกร้าน แจ้งเตือนกะถัดไป และรายการกันลืม (${notes.size} รายการ)",

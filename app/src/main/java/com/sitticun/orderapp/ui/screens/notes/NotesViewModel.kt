@@ -18,6 +18,8 @@ class NotesViewModel(
     private val repository: NoteRepository
 ) : ViewModel() {
 
+    val pendingCount = repository.pendingCount
+
     private val _notes = MutableStateFlow<List<NoteModel>>(emptyList())
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

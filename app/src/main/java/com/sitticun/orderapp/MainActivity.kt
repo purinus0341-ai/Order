@@ -28,7 +28,10 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             if (OrderApplication.instance.authRepository.isLoggedIn) {
                 OrderApplication.instance.authRepository.verifyProfileActiveGuard()
-                OrderApplication.instance.outboxRepository.syncPendingItems()
+                if (OrderApplication.instance.authRepository.isLoggedIn) {
+                    OrderApplication.instance.outboxRepository.syncPendingItems()
+                    OrderApplication.instance.noteRepository.syncNotes()
+                }
             }
         }
     }

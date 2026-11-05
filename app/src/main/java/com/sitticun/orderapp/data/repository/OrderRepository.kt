@@ -82,8 +82,8 @@ class OrderRepository(
             if (remote.isSuccess) {
                 val list = remote.getOrThrow()
                 dbHelper.saveHeldBills(list)
-                _heldBills.value = list
-                return@withContext list
+                _heldBills.value = dbHelper.getAllHeldBills()
+                return@withContext _heldBills.value
             }
         }
         _heldBills.value

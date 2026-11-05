@@ -10,6 +10,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,6 +25,9 @@ class NoteRepository(
     private val networkMonitor: NetworkMonitor
 ) {
     private val mutex = Mutex()
+    private val _pendingCount = MutableStateFlow(dbHelper.pendingNotes().size)
+    val pendingCount = _pendingCount.asStateFlow()
+    private fun refreshPendingCount() { _pendingCount.value = dbHelper.pendingNotes().size }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
@@ -49,6 +54,7 @@ class NoteRepository(
                 val remote = supabaseClient.getNotes()
                 if (remote.isSuccess) dbHelper.saveNotes(remote.getOrThrow().filter { it.id !in pending })
             }
+            refreshPendingCount()
             dbHelper.getAllNotes()
         }
     }
@@ -63,6 +69,7 @@ class NoteRepository(
                 updatedAt = Formatters.getCurrentIsoTimestamp()
             )
             dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert") }
+            refreshPendingCount()
             updated
         }
         if (networkMonitor.isOnline) syncNotes()
@@ -74,12 +81,13 @@ class NoteRepository(
             val current = dbHelper.getAllNotes().firstOrNull { it.id == note.id } ?: return@withLock
             val updated = current.copy(isPinned = !current.isPinned, updatedAt = Formatters.getCurrentIsoTimestamp())
             dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert") }
+            refreshPendingCount()
         }
         if (networkMonitor.isOnline) syncNotes()
     }
 
     suspend fun deleteNote(id: String) = withContext(Dispatchers.IO) {
-        mutex.withLock { dbHelper.inTransaction { dbHelper.deleteNote(id); dbHelper.queueNote(id, "delete") } }
+        mutex.withLock { dbHelper.inTransaction { dbHelper.deleteNote(id); dbHelper.queueNote(id, "delete") }; refreshPendingCount() }
         if (networkMonitor.isOnline) syncNotes()
     }
 }
