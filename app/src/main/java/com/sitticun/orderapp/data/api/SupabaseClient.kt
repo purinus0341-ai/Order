@@ -381,6 +381,16 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
         }
     }
 
+    suspend fun getHeldBill(id: String): Result<HeldBill?> = withContext(Dispatchers.IO) {
+        try {
+            val safeId = java.net.URLEncoder.encode(id, "UTF-8")
+            val response = executeWithRetry("/rest/v1/held_bills?id=eq.$safeId&select=id,customer_id,customer_name_snapshot,note,payload,updated_at,updated_by,version")
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@withContext Result.failure(Exception("ดึงบิลพักล้มเหลว: $body"))
+            Result.success(json.decodeFromString<List<HeldBill>>(body).firstOrNull())
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
     suspend fun saveHeldBill(bill: HeldBill, expectedVersion: Long): Result<Long> = withContext(Dispatchers.IO) {
         try {
             val body = SaveHeldBillBody(

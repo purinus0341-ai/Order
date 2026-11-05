@@ -193,6 +193,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         """.trimIndent())
 
         createPendingNotesTable(db)
+        createPendingHeldTable(db)
 
         // Insert default initial products from OrderApp
         seedInitialProducts(db)
@@ -202,7 +203,12 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         db.execSQL("CREATE TABLE IF NOT EXISTS pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL)")
     }
 
+    private fun createPendingHeldTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_held_bills (bill_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, attempted INTEGER NOT NULL DEFAULT 0)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 6) createPendingHeldTable(db)
         if (oldVersion < 5) createPendingNotesTable(db)
         if (oldVersion < 3) {
             db.execSQL("""CREATE TABLE IF NOT EXISTS notes (
@@ -763,11 +769,35 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         db.insertWithOnConflict("held_bills", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    fun queueHeldBill(id: String, owner: String) {
+        val values = ContentValues().apply { put("bill_id", id); put("owner_id", owner) }
+        check(writableDatabase.insertOrThrow("pending_held_bills", null, values) != -1L)
+    }
+
+    fun pendingHeldBills(): Map<String, Pair<String, Boolean>> {
+        val result = mutableMapOf<String, Pair<String, Boolean>>()
+        readableDatabase.rawQuery("SELECT bill_id, owner_id, attempted FROM pending_held_bills", null).use { cursor ->
+            while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1) to (cursor.getInt(2) != 0)
+        }
+        return result
+    }
+
+    fun markHeldAttempted(id: String) {
+        val values = ContentValues().apply { put("attempted", 1) }
+        check(writableDatabase.update("pending_held_bills", values, "bill_id = ?", arrayOf(id)) == 1)
+    }
+
+    fun clearPendingHeldBill(id: String) {
+        writableDatabase.delete("pending_held_bills", "bill_id = ?", arrayOf(id))
+    }
+
     fun saveHeldBills(bills: List<HeldBill>) {
         val db = writableDatabase
         db.beginTransaction()
         try {
+            val pendingIds = pendingHeldBills().keys
             for (b in bills) {
+                if (b.id in pendingIds) continue
                 val cv = ContentValues().apply {
                     put("id", b.id)
                     put("customer_id", b.customerId)
@@ -1203,7 +1233,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
 
     companion object {
         const val DATABASE_NAME = "order_app.db"
-        const val DATABASE_VERSION = 5
+        const val DATABASE_VERSION = 6
     }
 }
 
