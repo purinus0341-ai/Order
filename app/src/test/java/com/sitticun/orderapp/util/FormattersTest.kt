@@ -18,4 +18,15 @@ class FormattersTest {
             TimeZone.setDefault(original)
         }
     }
+    @Test fun postgresUtcTimestampDisplaysInDeviceTimezone() {
+        val original = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Bangkok"))
+            listOf("2026-11-06T02:35:05+00:00", "2026-11-06T02:35:05.123456+00:00", "2026-11-06T02:35:05Z").forEach {
+                assertTrue(Formatters.formatIsoDateTime(it).contains("09:35"))
+            }
+        } finally {
+            TimeZone.setDefault(original)
+        }
+    }
 }
