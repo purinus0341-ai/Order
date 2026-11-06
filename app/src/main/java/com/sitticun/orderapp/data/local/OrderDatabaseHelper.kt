@@ -1219,6 +1219,14 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         }
     }
 
+    fun reconcileNotes(remote: List<NoteModel>, confirmedMissingIds: Set<String>) {
+        inTransaction {
+            val pending = pendingNotes().keys
+            for (note in remote) if (note.id !in pending) upsertNote(note)
+            for (id in confirmedMissingIds) if (id !in pending) deleteNote(id)
+        }
+    }
+
     fun queueNote(id: String, operation: String, owner: String, baseRevision: Long?) {
         val originalBase = pendingNoteBases().let { if (it.containsKey(id)) it[id] else baseRevision }
         val values = ContentValues().apply { put("note_id", id); put("operation", operation); put("owner_id", owner); put("base_revision", originalBase) }

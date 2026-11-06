@@ -107,4 +107,16 @@ class OrderDatabaseHelperTest {
             }
         } finally { db.close() }
     }
+    @Test fun remoteReconciliationKeepsPendingAndDeletesOnlyConfirmedMissing() {
+        val a = com.sitticun.orderapp.data.model.NoteModel(id = "deleted", title = "A", content = "A")
+        val b = com.sitticun.orderapp.data.model.NoteModel(id = "pending", title = "B", content = "B")
+        val c = com.sitticun.orderapp.data.model.NoteModel(id = "unconfirmed", title = "C", content = "C")
+        helper.upsertNote(a); helper.upsertNote(b); helper.upsertNote(c)
+        helper.queueNote("pending", "upsert", "user", 1L)
+        helper.reconcileNotes(listOf(b.copy(title = "remote")), setOf("deleted", "pending"))
+        val remaining = helper.getAllNotes().associateBy { it.id }
+        assertFalse(remaining.containsKey("deleted"))
+        assertEquals("B", remaining["pending"]?.title)
+        assertTrue(remaining.containsKey("unconfirmed"))
+    }
 }

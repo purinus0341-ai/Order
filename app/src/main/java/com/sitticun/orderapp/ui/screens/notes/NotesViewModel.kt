@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.sitticun.orderapp.OrderApplication
 import com.sitticun.orderapp.data.model.NoteModel
 import com.sitticun.orderapp.data.repository.NoteRepository
+import com.sitticun.orderapp.data.repository.PendingNoteReview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,7 @@ class NotesViewModel(
     private val repository: NoteRepository
 ) : ViewModel() {
 
+    val pendingTasks = repository.pendingTasks
     val syncError = repository.syncError
     val pendingCount = repository.pendingCount
     val unknownOwnerCount = repository.unknownOwnerCount
@@ -27,6 +29,26 @@ class NotesViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
     fun dismissError() { _error.value = null }
+
+    private val _review = MutableStateFlow<PendingNoteReview?>(null)
+    val review = _review.asStateFlow()
+    fun dismissReview() { _review.value = null }
+    fun reviewPending(id: String) {
+        viewModelScope.launch {
+            try { _review.value = repository.reviewPendingNote(id) }
+            catch (e: Exception) { _error.value = e.message ?: "ตรวจสอบรายการไม่สำเร็จ" }
+        }
+    }
+    fun resolvePending(keepCopy: Boolean) {
+        val current = _review.value ?: return
+        viewModelScope.launch {
+            try {
+                repository.resolvePendingNote(current, keepCopy)
+                _review.value = null
+                _notes.value = repository.getLocalNotes()
+            } catch (e: Exception) { _error.value = e.message ?: "จัดการรายการไม่สำเร็จ" }
+        }
+    }
 
     private val _notes = MutableStateFlow<List<NoteModel>>(emptyList())
     private val _searchQuery = MutableStateFlow("")

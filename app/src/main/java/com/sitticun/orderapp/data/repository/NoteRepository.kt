@@ -18,6 +18,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+data class PendingNoteReview(
+    val id: String, val operation: String, val owner: String?,
+    val local: NoteModel?, val remote: NoteModel?
+)
+
 class NoteRepository(
     private val supabaseClient: SupabaseClient,
     private val dbHelper: OrderDatabaseHelper,
@@ -27,6 +32,8 @@ class NoteRepository(
     private val mutex = Mutex()
     private val _syncError = MutableStateFlow<String?>(null)
     val syncError = _syncError.asStateFlow()
+    private val _pendingTasks = MutableStateFlow(dbHelper.pendingNotes())
+    val pendingTasks = _pendingTasks.asStateFlow()
     private val _pendingCount = MutableStateFlow(dbHelper.pendingNotes().size)
     val pendingCount = _pendingCount.asStateFlow()
     private val _unknownOwnerCount = MutableStateFlow(dbHelper.pendingNotes().count { it.value.second == null })
@@ -37,6 +44,7 @@ class NoteRepository(
     val unverifiedBaseCount = _unverifiedBaseCount.asStateFlow()
     private fun refreshPendingCount() {
         val pending = dbHelper.pendingNotes()
+        _pendingTasks.value = pending
         _pendingCount.value = pending.size
         _unknownOwnerCount.value = pending.count { it.value.second == null }
         _unknownOwnerTasks.value = pending.filterValues { it.second == null }.mapValues { it.value.first }
@@ -59,6 +67,44 @@ class NoteRepository(
     private fun checkPendingOwner(id: String, owner: String) {
         val pending = dbHelper.pendingNotes()[id]
         check(pending == null || pending.second == owner) { "โน้ตนี้มีรายการรอซิงก์จากบัญชีอื่นหรือไม่ทราบเจ้าของ กรุณาติดต่อผู้ดูแล" }
+    }
+
+    suspend fun reviewPendingNote(id: String): PendingNoteReview = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val owner = currentOwner()
+            check(networkMonitor.isOnline) { "กรุณาเชื่อมต่ออินเทอร์เน็ตก่อนตรวจสอบ" }
+            val task = dbHelper.pendingNotes()[id] ?: error("รายการนี้ไม่ได้รอซิงก์แล้ว")
+            check(task.second == null || task.second == owner) { "รายการนี้เป็นของบัญชีอื่น กรุณาเข้าสู่ระบบด้วยบัญชีเจ้าของ" }
+            val local = dbHelper.getAllNotes().firstOrNull { it.id == id }
+            val remote = supabaseClient.getNote(id).getOrThrow()
+            check(currentOwner() == owner) { "บัญชีผู้ใช้เปลี่ยนระหว่างตรวจสอบ กรุณาลองใหม่" }
+            PendingNoteReview(id, task.first, task.second, local, remote)
+        }
+    }
+
+    suspend fun resolvePendingNote(review: PendingNoteReview, keepCopy: Boolean) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val owner = currentOwner()
+            check(networkMonitor.isOnline) { "กรุณาเชื่อมต่ออินเทอร์เน็ตก่อนจัดการ" }
+            val task = dbHelper.pendingNotes()[review.id] ?: error("รายการนี้ไม่ได้รอซิงก์แล้ว")
+            check(task.first == review.operation && task.second == review.owner && (task.second == null || task.second == owner)) { "รายการเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            val local = dbHelper.getAllNotes().firstOrNull { it.id == review.id }
+            check(local == review.local) { "ข้อมูลในเครื่องเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            val remote = supabaseClient.getNote(review.id).getOrThrow()
+            check(remote == review.remote && currentOwner() == owner) { "ข้อมูลบนคลาวด์หรือบัญชีเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            check(!keepCopy || local != null) { "ไม่มีเนื้อหาในเครื่องให้เก็บเป็นสำเนา" }
+            dbHelper.inTransaction {
+                if (keepCopy && local != null) {
+                    val copy = local.copy(id = UUID.randomUUID().toString(), createdBy = owner, revision = null, updatedAt = Formatters.getCurrentIsoTimestamp())
+                    dbHelper.upsertNote(copy)
+                    dbHelper.queueNote(copy.id, "upsert", owner, 0L)
+                }
+                if (remote == null) dbHelper.deleteNote(review.id) else dbHelper.upsertNote(remote)
+                dbHelper.clearPendingNote(review.id)
+            }
+            refreshPendingCount()
+        }
+        if (networkMonitor.isOnline) syncNotes()
     }
 
     suspend fun getLocalNotes(): List<NoteModel> = withContext(Dispatchers.IO) { dbHelper.getAllNotes() }
@@ -108,7 +154,16 @@ class NoteRepository(
                 val pending = dbHelper.pendingNotes()
                 val remote = supabaseClient.getNotes()
                 if (remote.isSuccess) {
-                    dbHelper.saveNotes(remote.getOrThrow().filter { it.id !in pending })
+                    val remoteNotes = remote.getOrThrow()
+                    val remoteIds = remoteNotes.mapTo(mutableSetOf()) { it.id }
+                    val confirmedMissing = mutableSetOf<String>()
+                    for (note in dbHelper.getAllNotes()) {
+                        if (note.id in pending || note.id in remoteIds) continue
+                        val confirmed = supabaseClient.getNote(note.id)
+                        if (confirmed.isSuccess && confirmed.getOrNull() == null) confirmedMissing.add(note.id)
+                        else if (confirmed.isFailure) failedOperations++
+                    }
+                    dbHelper.reconcileNotes(remoteNotes, confirmedMissing)
                     _syncError.value = if (failedOperations > 0) "บางรายการยังซิงก์ไม่ได้หรือข้อมูลบนคลาวด์เปลี่ยนไป กรุณาตรวจสอบการเชื่อมต่อและติดต่อผู้ดูแล" else null
                 } else {
                     val detail = remote.exceptionOrNull()?.message.orEmpty()
