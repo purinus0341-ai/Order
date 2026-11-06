@@ -14,7 +14,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class SupabaseClient(private val preferenceManager: PreferenceManager) {
+class SupabaseClient internal constructor(
+    private val preferenceManager: PreferenceManager,
+    private val configuredBaseUrl: String = BuildConfig.SUPABASE_URL
+) {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -30,7 +33,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
         .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    val baseUrl: String = BuildConfig.SUPABASE_URL.trimEnd('/')
+    val baseUrl: String = configuredBaseUrl.trimEnd('/')
     val anonKey: String = BuildConfig.SUPABASE_ANON_KEY
 
     private fun buildRequest(
@@ -657,6 +660,10 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
 
     suspend fun writeNoteIfUnchanged(id: String, operation: String, note: NoteModel?, base: Long): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            require(id.isNotBlank()) { "Note id is required" }
+            require(base >= 0L && operation in setOf("upsert", "delete")) { "Invalid note operation" }
+            require(operation != "delete" || base > 0L) { "Deleting a note requires its server revision" }
+            require(operation != "upsert" || (note != null && note.id == id)) { "Matching note data is required" }
             val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
             val endpoint = if (base == 0L) "/rest/v1/notes" else {
                 "/rest/v1/notes?id=eq.$encodedId&revision=eq.$base"
