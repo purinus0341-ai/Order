@@ -188,7 +188,8 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
                 content TEXT NOT NULL,
                 is_pinned INTEGER DEFAULT 0,
                 created_by TEXT,
-                updated_at TEXT
+                updated_at TEXT,
+                revision INTEGER
             )
         """.trimIndent())
 
@@ -200,7 +201,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
     }
 
     private fun createPendingNotesTable(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE IF NOT EXISTS pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL, owner_id TEXT, base_updated_at TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL, owner_id TEXT, base_updated_at TEXT, base_revision INTEGER)")
     }
 
     private fun createPendingHeldTable(db: SQLiteDatabase) {
@@ -213,13 +214,14 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         else {
             if (oldVersion < 7) db.execSQL("ALTER TABLE pending_notes ADD COLUMN owner_id TEXT")
             if (oldVersion < 8) db.execSQL("ALTER TABLE pending_notes ADD COLUMN base_updated_at TEXT")
+            if (oldVersion < 9) db.execSQL("ALTER TABLE pending_notes ADD COLUMN base_revision INTEGER")
         }
         if (oldVersion < 3) {
             db.execSQL("""CREATE TABLE IF NOT EXISTS notes (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
-                is_pinned INTEGER DEFAULT 0, created_by TEXT, updated_at TEXT
+                is_pinned INTEGER DEFAULT 0, created_by TEXT, updated_at TEXT, revision INTEGER
             )""".trimIndent())
-        }
+        } else if (oldVersion < 9) db.execSQL("ALTER TABLE notes ADD COLUMN revision INTEGER")
     }
 
     private fun seedInitialProducts(db: SQLiteDatabase) {
@@ -1172,7 +1174,8 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
                         content = it.getString(it.getColumnIndexOrThrow("content")),
                         isPinned = it.getInt(it.getColumnIndexOrThrow("is_pinned")) == 1,
                         createdBy = it.getString(it.getColumnIndexOrThrow("created_by")),
-                        updatedAt = it.getString(it.getColumnIndexOrThrow("updated_at")).orEmpty()
+                        updatedAt = it.getString(it.getColumnIndexOrThrow("updated_at")).orEmpty(),
+                        revision = it.getColumnIndexOrThrow("revision").let { index -> if (it.isNull(index)) null else it.getLong(index) }
                     )
                 )
             }
@@ -1189,8 +1192,9 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
             put("is_pinned", if (note.isPinned) 1 else 0)
             put("created_by", note.createdBy)
             put("updated_at", note.updatedAt)
+            put("revision", note.revision)
         }
-        db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        check(db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L)
     }
 
     fun saveNotes(notes: List<NoteModel>) {
@@ -1205,6 +1209,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
                     put("is_pinned", if (n.isPinned) 1 else 0)
                     put("created_by", n.createdBy)
                     put("updated_at", n.updatedAt)
+                    put("revision", n.revision)
                 }
                 db.insertWithOnConflict("notes", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
@@ -1214,9 +1219,9 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         }
     }
 
-    fun queueNote(id: String, operation: String, owner: String, baseUpdatedAt: String?) {
-        val originalBase = pendingNoteBases().let { if (it.containsKey(id)) it[id] else baseUpdatedAt }
-        val values = ContentValues().apply { put("note_id", id); put("operation", operation); put("owner_id", owner); put("base_updated_at", originalBase) }
+    fun queueNote(id: String, operation: String, owner: String, baseRevision: Long?) {
+        val originalBase = pendingNoteBases().let { if (it.containsKey(id)) it[id] else baseRevision }
+        val values = ContentValues().apply { put("note_id", id); put("operation", operation); put("owner_id", owner); put("base_revision", originalBase) }
         check(writableDatabase.insertWithOnConflict("pending_notes", null, values, SQLiteDatabase.CONFLICT_REPLACE) != -1L)
     }
 
@@ -1228,10 +1233,10 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         return result
     }
 
-    fun pendingNoteBases(): Map<String, String?> {
-        val result = mutableMapOf<String, String?>()
-        readableDatabase.rawQuery("SELECT note_id, base_updated_at FROM pending_notes", null).use { cursor ->
-            while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1)
+    fun pendingNoteBases(): Map<String, Long?> {
+        val result = mutableMapOf<String, Long?>()
+        readableDatabase.rawQuery("SELECT note_id, base_revision FROM pending_notes", null).use { cursor ->
+            while (cursor.moveToNext()) result[cursor.getString(0)] = if (cursor.isNull(1)) null else cursor.getLong(1)
         }
         return result
     }
@@ -1246,7 +1251,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
 
     companion object {
         const val DATABASE_NAME = "order_app.db"
-        const val DATABASE_VERSION = 8
+        const val DATABASE_VERSION = 9
     }
 }
 

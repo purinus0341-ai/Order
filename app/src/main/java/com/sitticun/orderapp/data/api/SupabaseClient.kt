@@ -633,7 +633,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
     // -------------------------------------------------------------
     suspend fun getNotes(): Result<List<NoteModel>> = withContext(Dispatchers.IO) {
         try {
-            val response = executeWithRetry("/rest/v1/notes?select=id,title,content,is_pinned,created_by,updated_at&order=is_pinned.desc,updated_at.desc")
+            val response = executeWithRetry("/rest/v1/notes?select=id,title,content,is_pinned,created_by,updated_at,revision&order=is_pinned.desc,updated_at.desc")
             val resBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 return@withContext Result.failure(Exception("ดึงข้อมูลโน้ตล้มเหลว: $resBody"))
@@ -648,21 +648,20 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
     suspend fun getNote(id: String): Result<NoteModel?> = withContext(Dispatchers.IO) {
         try {
             val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
-            val response = executeWithRetry("/rest/v1/notes?id=eq.$encodedId&select=id,title,content,is_pinned,created_by,updated_at")
+            val response = executeWithRetry("/rest/v1/notes?id=eq.$encodedId&select=id,title,content,is_pinned,created_by,updated_at,revision")
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) return@withContext Result.failure(Exception("ตรวจสอบโน้ตไม่สำเร็จ: $body"))
             Result.success(json.decodeFromString<List<NoteModel>>(body).firstOrNull())
         } catch (e: Exception) { Result.failure(e) }
     }
 
-    suspend fun writeNoteIfUnchanged(id: String, operation: String, note: NoteModel?, base: String): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun writeNoteIfUnchanged(id: String, operation: String, note: NoteModel?, base: Long): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
-            val endpoint = if (base.isEmpty()) "/rest/v1/notes" else {
-                val encodedBase = java.net.URLEncoder.encode(base, "UTF-8")
-                "/rest/v1/notes?id=eq.$encodedId&updated_at=eq.$encodedBase"
+            val endpoint = if (base == 0L) "/rest/v1/notes" else {
+                "/rest/v1/notes?id=eq.$encodedId&revision=eq.$base"
             }
-            val method = if (operation == "delete") "DELETE" else if (base.isEmpty()) "POST" else "PATCH"
+            val method = if (operation == "delete") "DELETE" else if (base == 0L) "POST" else "PATCH"
             val body = note?.let { json.encodeToString(it).toRequestBody(jsonMediaType) }
             val response = executeWithRetry(endpoint, method = method, body = body, extraHeaders = mapOf("Prefer" to "return=representation"))
             val payload = response.body?.string().orEmpty()

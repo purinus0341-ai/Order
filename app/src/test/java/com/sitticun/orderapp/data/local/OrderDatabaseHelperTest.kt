@@ -76,18 +76,35 @@ class OrderDatabaseHelperTest {
         try {
             db.execSQL("CREATE TABLE pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL)")
             db.execSQL("INSERT INTO pending_notes VALUES ('old', 'delete')")
-            helper.onUpgrade(db, 6, 8)
+            db.execSQL("CREATE TABLE notes (id TEXT PRIMARY KEY)")
+            helper.onUpgrade(db, 6, 9)
             db.rawQuery("SELECT owner_id FROM pending_notes WHERE note_id = 'old'", null).use {
                 assertTrue(it.moveToFirst())
                 assertTrue(it.isNull(0))
             }
         } finally { db.close() }
-        helper.queueNote("new", "delete", "user-a", "")
+        helper.queueNote("new", "delete", "user-a", 0L)
         assertEquals("delete" to "user-a", helper.pendingNotes()["new"])
     }
     @Test fun noteQueueKeepsOriginalBaseAcrossEdits() {
-        helper.queueNote("n", "upsert", "user", "2026-01-01T00:00:00Z")
-        helper.queueNote("n", "delete", "user", "2026-02-01T00:00:00Z")
-        assertEquals("2026-01-01T00:00:00Z", helper.pendingNoteBases()["n"])
+        helper.queueNote("n", "upsert", "user", 1L)
+        helper.queueNote("n", "delete", "user", 2L)
+        assertEquals(1L, helper.pendingNoteBases()["n"] ?: -1L)
+    }
+    @Test fun upgradingVersionEightKeepsLegacyQueueUnverified() {
+        val db = android.database.sqlite.SQLiteDatabase.create(null)
+        try {
+            db.execSQL("CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
+            db.execSQL("INSERT INTO notes VALUES ('n', 'original')")
+            db.execSQL("CREATE TABLE pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL, owner_id TEXT, base_updated_at TEXT)")
+            db.execSQL("INSERT INTO pending_notes VALUES ('n', 'upsert', 'user', '2026-01-01T00:00:00Z')")
+            helper.onUpgrade(db, 8, 9)
+            db.rawQuery("SELECT title, revision FROM notes WHERE id = 'n'", null).use {
+                assertTrue(it.moveToFirst()); assertEquals("original", it.getString(0)); assertTrue(it.isNull(1))
+            }
+            db.rawQuery("SELECT base_revision FROM pending_notes WHERE note_id = 'n'", null).use {
+                assertTrue(it.moveToFirst()); assertTrue(it.isNull(0))
+            }
+        } finally { db.close() }
     }
 }
