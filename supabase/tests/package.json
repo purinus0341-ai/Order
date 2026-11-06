@@ -1,0 +1,6 @@
+{
+  "name": "orderapp-database-tests",
+  "private": true,
+  "scripts": { "test": "node --test notes-migration.test.cjs" },
+  "devDependencies": { "@electric-sql/pglite": "0.3.14" }
+}
