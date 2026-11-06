@@ -20,6 +20,10 @@ class NotesViewModel(
 
     val pendingCount = repository.pendingCount
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+    fun dismissError() { _error.value = null }
+
     private val _notes = MutableStateFlow<List<NoteModel>>(emptyList())
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -64,26 +68,25 @@ class NotesViewModel(
     fun saveNote(title: String, content: String, isPinned: Boolean, existingId: String? = null) {
         if (title.isBlank() && content.isBlank()) return
         viewModelScope.launch {
-            repository.saveNote(
-                title = title,
-                content = content,
-                isPinned = isPinned,
-                existingId = existingId
-            )
+            try {
+                repository.saveNote(title = title, content = content, isPinned = isPinned, existingId = existingId)
+            } catch (e: Exception) {
+                _error.value = e.message ?: "บันทึกโน้ตไม่สำเร็จ"
+            }
             _notes.value = repository.getLocalNotes()
         }
     }
 
     fun togglePin(note: NoteModel) {
         viewModelScope.launch {
-            repository.togglePin(note)
+            try { repository.togglePin(note) } catch (e: Exception) { _error.value = e.message ?: "แก้ไขโน้ตไม่สำเร็จ" }
             _notes.value = repository.getLocalNotes()
         }
     }
 
     fun deleteNote(id: String) {
         viewModelScope.launch {
-            repository.deleteNote(id)
+            try { repository.deleteNote(id) } catch (e: Exception) { _error.value = e.message ?: "ลบโน้ตไม่สำเร็จ" }
             _notes.value = repository.getLocalNotes()
         }
     }

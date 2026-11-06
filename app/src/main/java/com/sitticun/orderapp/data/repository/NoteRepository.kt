@@ -36,14 +36,27 @@ class NoteRepository(
         }
     }
 
+    private fun currentOwner(): String {
+        check(preferenceManager.isLoggedIn) { "กรุณาเข้าสู่ระบบก่อนแก้ไขโน้ต" }
+        return preferenceManager.userProfile?.userId?.takeIf { it.isNotBlank() }
+            ?: error("ไม่พบข้อมูลบัญชีผู้ใช้")
+    }
+
+    private fun checkPendingOwner(id: String, owner: String) {
+        val pending = dbHelper.pendingNotes()[id]
+        check(pending == null || pending.second == owner) { "โน้ตนี้มีรายการรอซิงก์จากบัญชีอื่นหรือไม่ทราบเจ้าของ กรุณาติดต่อผู้ดูแล" }
+    }
+
     suspend fun getLocalNotes(): List<NoteModel> = withContext(Dispatchers.IO) { dbHelper.getAllNotes() }
 
     suspend fun syncNotes(): List<NoteModel> = withContext(Dispatchers.IO) {
         mutex.withLock {
-            if (networkMonitor.isOnline) {
+            val owner = preferenceManager.userProfile?.userId
+            if (networkMonitor.isOnline && preferenceManager.isLoggedIn && !owner.isNullOrBlank()) {
                 val local = dbHelper.getAllNotes().associateBy { it.id }
-                for ((id, operation) in dbHelper.pendingNotes()) {
-                    val result = when (operation) {
+                for ((id, task) in dbHelper.pendingNotes()) {
+                    if (task.second != owner || preferenceManager.userProfile?.userId != owner || !preferenceManager.isLoggedIn) continue
+                    val result = when (task.first) {
                         "delete" -> supabaseClient.deleteNote(id)
                         "upsert" -> local[id]?.let { supabaseClient.upsertNote(it) }
                         else -> null
@@ -61,6 +74,8 @@ class NoteRepository(
 
     suspend fun saveNote(title: String, content: String, isPinned: Boolean, existingId: String? = null): NoteModel = withContext(Dispatchers.IO) {
         val note = mutex.withLock {
+            val owner = currentOwner()
+            if (existingId != null) checkPendingOwner(existingId, owner)
             val existing = dbHelper.getAllNotes().firstOrNull { it.id == existingId }
             val updated = NoteModel(
                 id = existingId ?: UUID.randomUUID().toString(),
@@ -68,7 +83,7 @@ class NoteRepository(
                 createdBy = existing?.createdBy ?: preferenceManager.userProfile?.userId,
                 updatedAt = Formatters.getCurrentIsoTimestamp()
             )
-            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert") }
+            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert", owner) }
             refreshPendingCount()
             updated
         }
@@ -78,16 +93,23 @@ class NoteRepository(
 
     suspend fun togglePin(note: NoteModel) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            val owner = currentOwner()
+            checkPendingOwner(note.id, owner)
             val current = dbHelper.getAllNotes().firstOrNull { it.id == note.id } ?: return@withLock
             val updated = current.copy(isPinned = !current.isPinned, updatedAt = Formatters.getCurrentIsoTimestamp())
-            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert") }
+            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert", owner) }
             refreshPendingCount()
         }
         if (networkMonitor.isOnline) syncNotes()
     }
 
     suspend fun deleteNote(id: String) = withContext(Dispatchers.IO) {
-        mutex.withLock { dbHelper.inTransaction { dbHelper.deleteNote(id); dbHelper.queueNote(id, "delete") }; refreshPendingCount() }
+        mutex.withLock {
+            val owner = currentOwner()
+            checkPendingOwner(id, owner)
+            dbHelper.inTransaction { dbHelper.deleteNote(id); dbHelper.queueNote(id, "delete", owner) }
+            refreshPendingCount()
+        }
         if (networkMonitor.isOnline) syncNotes()
     }
 }

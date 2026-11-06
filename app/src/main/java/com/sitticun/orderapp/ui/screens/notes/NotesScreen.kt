@@ -35,10 +35,20 @@ fun NotesScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pendingCount by viewModel.pendingCount.collectAsState()
+    val error by viewModel.error.collectAsState()
 
     var showEditorDialog by remember { mutableStateOf(false) }
     var editingNote by remember { mutableStateOf<NoteModel?>(null) }
     var noteToDelete by remember { mutableStateOf<NoteModel?>(null) }
+
+    if (error != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissError() },
+            title = { Text("ไม่สามารถแก้ไขโน้ต") },
+            text = { Text(error.orEmpty()) },
+            confirmButton = { TextButton(onClick = { viewModel.dismissError() }) { Text("ตกลง") } }
+        )
+    }
 
     Box(
         modifier = Modifier
