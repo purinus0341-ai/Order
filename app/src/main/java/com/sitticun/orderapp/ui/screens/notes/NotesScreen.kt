@@ -34,6 +34,7 @@ fun NotesScreen(
     val notes by viewModel.filteredNotes.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val syncError by viewModel.syncError.collectAsState()
     val pendingCount by viewModel.pendingCount.collectAsState()
     val unknownOwnerCount by viewModel.unknownOwnerCount.collectAsState()
     val unknownOwnerTasks by viewModel.unknownOwnerTasks.collectAsState()
@@ -73,6 +74,9 @@ fun NotesScreen(
             .background(IosGroupedBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (syncError != null) {
+                Text(syncError.orEmpty(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = StatusDanger)
+            }
             if (pendingCount > 0) {
                 Text(
                     text = "มีโน้ต $pendingCount รายการรอซิงก์",

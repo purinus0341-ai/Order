@@ -18,6 +18,7 @@ class NotesViewModel(
     private val repository: NoteRepository
 ) : ViewModel() {
 
+    val syncError = repository.syncError
     val pendingCount = repository.pendingCount
     val unknownOwnerCount = repository.unknownOwnerCount
     val unknownOwnerTasks = repository.unknownOwnerTasks

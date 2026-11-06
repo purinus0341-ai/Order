@@ -25,6 +25,8 @@ class NoteRepository(
     private val networkMonitor: NetworkMonitor
 ) {
     private val mutex = Mutex()
+    private val _syncError = MutableStateFlow<String?>(null)
+    val syncError = _syncError.asStateFlow()
     private val _pendingCount = MutableStateFlow(dbHelper.pendingNotes().size)
     val pendingCount = _pendingCount.asStateFlow()
     private val _unknownOwnerCount = MutableStateFlow(dbHelper.pendingNotes().count { it.value.second == null })
@@ -64,6 +66,7 @@ class NoteRepository(
     suspend fun syncNotes(): List<NoteModel> = withContext(Dispatchers.IO) {
         mutex.withLock {
             val owner = preferenceManager.userProfile?.userId
+            var failedOperations = 0
             if (networkMonitor.isOnline && preferenceManager.isLoggedIn && !owner.isNullOrBlank()) {
                 val local = dbHelper.getAllNotes().associateBy { it.id }
                 val bases = dbHelper.pendingNoteBases()
@@ -72,7 +75,7 @@ class NoteRepository(
                     val base = bases[id] ?: continue
                     val desired = local[id]
                     val remoteResult = supabaseClient.getNote(id)
-                    if (remoteResult.isFailure) continue
+                    if (remoteResult.isFailure) { failedOperations++; continue }
                     val remote = remoteResult.getOrNull()
                     val alreadyApplied = when (task.first) {
                         "delete" -> remote == null
@@ -82,17 +85,27 @@ class NoteRepository(
                         else -> false
                     }
                     if (alreadyApplied) { dbHelper.clearPendingNote(id); continue }
-                    if ((base.isEmpty() && remote != null) || (base.isNotEmpty() && remote == null)) continue
+                    if ((base.isEmpty() && remote != null) || (base.isNotEmpty() && remote == null)) { failedOperations++; continue }
                     val result = when (task.first) {
                         "delete" -> if (base.isEmpty()) null else supabaseClient.writeNoteIfUnchanged(id, "delete", null, base)
                         "upsert" -> desired?.let { supabaseClient.writeNoteIfUnchanged(id, "upsert", it, base) }
                         else -> null
                     }
-                    if (result?.getOrNull() == true) dbHelper.clearPendingNote(id)
+                    if (result?.getOrNull() == true) dbHelper.clearPendingNote(id) else failedOperations++
                 }
                 val pending = dbHelper.pendingNotes()
                 val remote = supabaseClient.getNotes()
-                if (remote.isSuccess) dbHelper.saveNotes(remote.getOrThrow().filter { it.id !in pending })
+                if (remote.isSuccess) {
+                    dbHelper.saveNotes(remote.getOrThrow().filter { it.id !in pending })
+                    _syncError.value = if (failedOperations > 0) "บางรายการยังซิงก์ไม่ได้หรือข้อมูลบนคลาวด์เปลี่ยนไป กรุณาตรวจสอบการเชื่อมต่อและติดต่อผู้ดูแล" else null
+                } else {
+                    val detail = remote.exceptionOrNull()?.message.orEmpty()
+                    _syncError.value = if (detail.contains("PGRST205", true) || detail.contains("42P01", true) || detail.contains("schema cache", true))
+                        "ไม่พบตารางโน้ตบนเซิร์ฟเวอร์ โน้ตยังอยู่ในเครื่อง กรุณาติดต่อผู้ดูแล"
+                    else "โหลดโน้ตจากเซิร์ฟเวอร์ไม่สำเร็จ โน้ตยังอยู่ในเครื่อง กรุณาตรวจสอบการเชื่อมต่อหรือสิทธิ์"
+                }
+            } else if (!networkMonitor.isOnline) {
+                _syncError.value = "ออฟไลน์: โน้ตใหม่และการแก้ไขจะรอซิงก์"
             }
             refreshPendingCount()
             dbHelper.getAllNotes()
