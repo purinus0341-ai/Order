@@ -1,11 +1,13 @@
 # Notes migration history
 
 The `notes_server_revision` migration exists in this repository. The Ordernew
-project (`pafgvntgilogmxfrjamp`) already received its SQL through the SQL Editor;
-its migration history was empty when checked. Do not run the migration again
-against that project: `create table public.notes` would fail because it exists.
+project (`pafgvntgilogmxfrjamp`) received its SQL through the SQL Editor. On
+2026-11-06, workflow 42168563911 verified the existing schema and recorded
+version `20261106011919` as applied. A separate migration-list check confirmed
+the record. Do not run the SQL again against that project: `public.notes` exists.
 
-Before using `supabase db push` against Ordernew:
+If a future inspection shows the record is missing, before using
+`supabase db push` against Ordernew:
 
 1. Confirm that the linked project is `pafgvntgilogmxfrjamp` and that `public.notes`,
    the `notes_set_revision` trigger, grants and `notes_all_active_staff` RLS
