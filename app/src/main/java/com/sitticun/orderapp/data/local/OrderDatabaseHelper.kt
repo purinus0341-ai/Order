@@ -200,7 +200,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
     }
 
     private fun createPendingNotesTable(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE IF NOT EXISTS pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL, owner_id TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL, owner_id TEXT, base_updated_at TEXT)")
     }
 
     private fun createPendingHeldTable(db: SQLiteDatabase) {
@@ -210,7 +210,10 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 6) createPendingHeldTable(db)
         if (oldVersion < 5) createPendingNotesTable(db)
-        else if (oldVersion < 7) db.execSQL("ALTER TABLE pending_notes ADD COLUMN owner_id TEXT")
+        else {
+            if (oldVersion < 7) db.execSQL("ALTER TABLE pending_notes ADD COLUMN owner_id TEXT")
+            if (oldVersion < 8) db.execSQL("ALTER TABLE pending_notes ADD COLUMN base_updated_at TEXT")
+        }
         if (oldVersion < 3) {
             db.execSQL("""CREATE TABLE IF NOT EXISTS notes (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
@@ -1211,8 +1214,9 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         }
     }
 
-    fun queueNote(id: String, operation: String, owner: String) {
-        val values = ContentValues().apply { put("note_id", id); put("operation", operation); put("owner_id", owner) }
+    fun queueNote(id: String, operation: String, owner: String, baseUpdatedAt: String?) {
+        val originalBase = pendingNoteBases().let { if (it.containsKey(id)) it[id] else baseUpdatedAt }
+        val values = ContentValues().apply { put("note_id", id); put("operation", operation); put("owner_id", owner); put("base_updated_at", originalBase) }
         check(writableDatabase.insertWithOnConflict("pending_notes", null, values, SQLiteDatabase.CONFLICT_REPLACE) != -1L)
     }
 
@@ -1220,6 +1224,14 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         val result = mutableMapOf<String, Pair<String, String?>>()
         readableDatabase.rawQuery("SELECT note_id, operation, owner_id FROM pending_notes", null).use { cursor ->
             while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1) to cursor.getString(2)
+        }
+        return result
+    }
+
+    fun pendingNoteBases(): Map<String, String?> {
+        val result = mutableMapOf<String, String?>()
+        readableDatabase.rawQuery("SELECT note_id, base_updated_at FROM pending_notes", null).use { cursor ->
+            while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1)
         }
         return result
     }
@@ -1234,7 +1246,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
 
     companion object {
         const val DATABASE_NAME = "order_app.db"
-        const val DATABASE_VERSION = 7
+        const val DATABASE_VERSION = 8
     }
 }
 

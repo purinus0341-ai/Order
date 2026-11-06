@@ -645,6 +645,32 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
         }
     }
 
+    suspend fun getNote(id: String): Result<NoteModel?> = withContext(Dispatchers.IO) {
+        try {
+            val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
+            val response = executeWithRetry("/rest/v1/notes?id=eq.$encodedId&select=id,title,content,is_pinned,created_by,updated_at")
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@withContext Result.failure(Exception("ตรวจสอบโน้ตไม่สำเร็จ: $body"))
+            Result.success(json.decodeFromString<List<NoteModel>>(body).firstOrNull())
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun writeNoteIfUnchanged(id: String, operation: String, note: NoteModel?, base: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
+            val endpoint = if (base.isEmpty()) "/rest/v1/notes" else {
+                val encodedBase = java.net.URLEncoder.encode(base, "UTF-8")
+                "/rest/v1/notes?id=eq.$encodedId&updated_at=eq.$encodedBase"
+            }
+            val method = if (operation == "delete") "DELETE" else if (base.isEmpty()) "POST" else "PATCH"
+            val body = note?.let { json.encodeToString(it).toRequestBody(jsonMediaType) }
+            val response = executeWithRetry(endpoint, method = method, body = body, extraHeaders = mapOf("Prefer" to "return=representation"))
+            val payload = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@withContext Result.failure(Exception("ส่งโน้ตไม่สำเร็จ: $payload"))
+            Result.success(json.decodeFromString<JsonArray>(payload).isNotEmpty())
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
     suspend fun upsertNote(note: NoteModel): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val body = json.encodeToString(note).toRequestBody(jsonMediaType)

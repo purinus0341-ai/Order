@@ -76,13 +76,18 @@ class OrderDatabaseHelperTest {
         try {
             db.execSQL("CREATE TABLE pending_notes (note_id TEXT PRIMARY KEY, operation TEXT NOT NULL)")
             db.execSQL("INSERT INTO pending_notes VALUES ('old', 'delete')")
-            helper.onUpgrade(db, 6, 7)
+            helper.onUpgrade(db, 6, 8)
             db.rawQuery("SELECT owner_id FROM pending_notes WHERE note_id = 'old'", null).use {
                 assertTrue(it.moveToFirst())
                 assertTrue(it.isNull(0))
             }
         } finally { db.close() }
-        helper.queueNote("new", "delete", "user-a")
+        helper.queueNote("new", "delete", "user-a", "")
         assertEquals("delete" to "user-a", helper.pendingNotes()["new"])
+    }
+    @Test fun noteQueueKeepsOriginalBaseAcrossEdits() {
+        helper.queueNote("n", "upsert", "user", "2026-01-01T00:00:00Z")
+        helper.queueNote("n", "delete", "user", "2026-02-01T00:00:00Z")
+        assertEquals("2026-01-01T00:00:00Z", helper.pendingNoteBases()["n"])
     }
 }

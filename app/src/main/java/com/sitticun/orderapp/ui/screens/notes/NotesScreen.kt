@@ -37,6 +37,7 @@ fun NotesScreen(
     val pendingCount by viewModel.pendingCount.collectAsState()
     val unknownOwnerCount by viewModel.unknownOwnerCount.collectAsState()
     val unknownOwnerTasks by viewModel.unknownOwnerTasks.collectAsState()
+    val unverifiedBaseCount by viewModel.unverifiedBaseCount.collectAsState()
     var showUnknownTasks by remember { mutableStateOf(false) }
     val error by viewModel.error.collectAsState()
 
@@ -78,6 +79,9 @@ fun NotesScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     color = TextPrimary
                 )
+            }
+            if (unverifiedBaseCount > 0) {
+                Text("มีโน้ต $unverifiedBaseCount รายการที่ตรวจเวอร์ชันเดิมไม่ได้ กรุณาติดต่อผู้ดูแล", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = StatusDanger)
             }
             if (unknownOwnerCount > 0) {
                 TextButton(onClick = { showUnknownTasks = true }) {

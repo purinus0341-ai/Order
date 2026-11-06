@@ -31,11 +31,14 @@ class NoteRepository(
     val unknownOwnerCount = _unknownOwnerCount.asStateFlow()
     private val _unknownOwnerTasks = MutableStateFlow(dbHelper.pendingNotes().filterValues { it.second == null }.mapValues { it.value.first })
     val unknownOwnerTasks = _unknownOwnerTasks.asStateFlow()
+    private val _unverifiedBaseCount = MutableStateFlow(dbHelper.pendingNoteBases().count { it.value == null })
+    val unverifiedBaseCount = _unverifiedBaseCount.asStateFlow()
     private fun refreshPendingCount() {
         val pending = dbHelper.pendingNotes()
         _pendingCount.value = pending.size
         _unknownOwnerCount.value = pending.count { it.value.second == null }
         _unknownOwnerTasks.value = pending.filterValues { it.second == null }.mapValues { it.value.first }
+        _unverifiedBaseCount.value = dbHelper.pendingNoteBases().count { it.value == null }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -63,14 +66,29 @@ class NoteRepository(
             val owner = preferenceManager.userProfile?.userId
             if (networkMonitor.isOnline && preferenceManager.isLoggedIn && !owner.isNullOrBlank()) {
                 val local = dbHelper.getAllNotes().associateBy { it.id }
+                val bases = dbHelper.pendingNoteBases()
                 for ((id, task) in dbHelper.pendingNotes()) {
                     if (task.second != owner || preferenceManager.userProfile?.userId != owner || !preferenceManager.isLoggedIn) continue
+                    val base = bases[id] ?: continue
+                    val desired = local[id]
+                    val remoteResult = supabaseClient.getNote(id)
+                    if (remoteResult.isFailure) continue
+                    val remote = remoteResult.getOrNull()
+                    val alreadyApplied = when (task.first) {
+                        "delete" -> remote == null
+                        "upsert" -> desired != null && remote != null && desired.id == remote.id &&
+                            desired.title == remote.title && desired.content == remote.content &&
+                            desired.isPinned == remote.isPinned && desired.createdBy == remote.createdBy
+                        else -> false
+                    }
+                    if (alreadyApplied) { dbHelper.clearPendingNote(id); continue }
+                    if ((base.isEmpty() && remote != null) || (base.isNotEmpty() && remote == null)) continue
                     val result = when (task.first) {
-                        "delete" -> supabaseClient.deleteNote(id)
-                        "upsert" -> local[id]?.let { supabaseClient.upsertNote(it) }
+                        "delete" -> if (base.isEmpty()) null else supabaseClient.writeNoteIfUnchanged(id, "delete", null, base)
+                        "upsert" -> desired?.let { supabaseClient.writeNoteIfUnchanged(id, "upsert", it, base) }
                         else -> null
                     }
-                    if (result?.isSuccess == true) dbHelper.clearPendingNote(id)
+                    if (result?.getOrNull() == true) dbHelper.clearPendingNote(id)
                 }
                 val pending = dbHelper.pendingNotes()
                 val remote = supabaseClient.getNotes()
@@ -92,7 +110,7 @@ class NoteRepository(
                 createdBy = existing?.createdBy ?: preferenceManager.userProfile?.userId,
                 updatedAt = Formatters.getCurrentIsoTimestamp()
             )
-            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert", owner) }
+            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert", owner, existing?.updatedAt?.takeIf { it.isNotBlank() } ?: if (existing == null) "" else null) }
             refreshPendingCount()
             updated
         }
@@ -106,7 +124,7 @@ class NoteRepository(
             checkPendingOwner(note.id, owner)
             val current = dbHelper.getAllNotes().firstOrNull { it.id == note.id } ?: return@withLock
             val updated = current.copy(isPinned = !current.isPinned, updatedAt = Formatters.getCurrentIsoTimestamp())
-            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert", owner) }
+            dbHelper.inTransaction { dbHelper.upsertNote(updated); dbHelper.queueNote(updated.id, "upsert", owner, current.updatedAt.takeIf { it.isNotBlank() }) }
             refreshPendingCount()
         }
         if (networkMonitor.isOnline) syncNotes()
@@ -116,7 +134,8 @@ class NoteRepository(
         mutex.withLock {
             val owner = currentOwner()
             checkPendingOwner(id, owner)
-            dbHelper.inTransaction { dbHelper.deleteNote(id); dbHelper.queueNote(id, "delete", owner) }
+            val current = dbHelper.getAllNotes().firstOrNull { it.id == id }
+            dbHelper.inTransaction { dbHelper.deleteNote(id); dbHelper.queueNote(id, "delete", owner, current?.updatedAt?.takeIf { it.isNotBlank() }) }
             refreshPendingCount()
         }
         if (networkMonitor.isOnline) syncNotes()
