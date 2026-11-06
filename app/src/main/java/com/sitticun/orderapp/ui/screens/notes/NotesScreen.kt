@@ -2,6 +2,8 @@ package com.sitticun.orderapp.ui.screens.notes
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,10 +36,91 @@ fun NotesScreen(
     val notes by viewModel.filteredNotes.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val syncError by viewModel.syncError.collectAsState()
+    val pendingTasks by viewModel.pendingTasks.collectAsState()
+    val review by viewModel.review.collectAsState()
+    var showPending by remember { mutableStateOf(false) }
+    var confirmResolution by remember { mutableStateOf<Boolean?>(null) }
+    val pendingCount by viewModel.pendingCount.collectAsState()
+    val unknownOwnerCount by viewModel.unknownOwnerCount.collectAsState()
+    val unknownOwnerTasks by viewModel.unknownOwnerTasks.collectAsState()
+    val unverifiedBaseCount by viewModel.unverifiedBaseCount.collectAsState()
+    var showUnknownTasks by remember { mutableStateOf(false) }
+    val error by viewModel.error.collectAsState()
 
     var showEditorDialog by remember { mutableStateOf(false) }
     var editingNote by remember { mutableStateOf<NoteModel?>(null) }
     var noteToDelete by remember { mutableStateOf<NoteModel?>(null) }
+
+    if (showPending) {
+        AlertDialog(
+            onDismissRequest = { showPending = false },
+            title = { Text("รายการโน้ตที่รอซิงก์") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    pendingTasks.forEach { (id, task) ->
+                        TextButton(onClick = { showPending = false; viewModel.reviewPending(id) }) {
+                            Text("${if (task.first == "delete") "ลบ" else "บันทึก"}: $id")
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPending = false }) { Text("ปิด") } }
+        )
+    }
+
+    review?.let { item ->
+        if (confirmResolution == null) AlertDialog(
+            onDismissRequest = { viewModel.dismissReview() },
+            title = { Text("ตรวจสอบโน้ตที่รอซิงก์") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text("รายการ: ${if (item.operation == "delete") "ลบโน้ต" else "บันทึกโน้ต"}")
+                    Spacer(Modifier.height(12.dp))
+                    Text("ในเครื่อง", fontWeight = FontWeight.Bold)
+                    Text(item.local?.let { "${it.title}\n${it.content}" } ?: "ไม่มีเนื้อหาในเครื่อง")
+                    Spacer(Modifier.height(12.dp))
+                    Text("บนคลาวด์", fontWeight = FontWeight.Bold)
+                    Text(item.remote?.let { "${it.title}\n${it.content}" } ?: "ไม่พบบนคลาวด์")
+                }
+            },
+            confirmButton = {
+                if (item.local != null) TextButton(onClick = { confirmResolution = true }) { Text("เก็บในเครื่องเป็นสำเนา") }
+            },
+            dismissButton = { TextButton(onClick = { confirmResolution = false }) { Text("ใช้ข้อมูลคลาวด์") } }
+        )
+        confirmResolution?.let { keepCopy ->
+            AlertDialog(
+                onDismissRequest = { confirmResolution = null },
+                title = { Text("ยืนยันการจัดการโน้ต") },
+                text = { Text(if (keepCopy) "สร้างสำเนาจากข้อมูลในเครื่อง แล้วใช้ข้อมูลคลาวด์สำหรับรายการเดิม" else "ใช้ข้อมูลคลาวด์และยกเลิกการเปลี่ยนแปลงที่รอส่งในเครื่อง รายการที่ไม่มีบนคลาวด์จะถูกลบจากเครื่อง") },
+                confirmButton = { TextButton(onClick = { confirmResolution = null; viewModel.resolvePending(keepCopy) }) { Text("ยืนยัน") } },
+                dismissButton = { TextButton(onClick = { confirmResolution = null }) { Text("กลับ") } }
+            )
+        }
+    }
+
+    if (showUnknownTasks) {
+        AlertDialog(
+            onDismissRequest = { showUnknownTasks = false },
+            title = { Text("รายการเก่าที่รอตรวจเจ้าของ") },
+            text = {
+                Text(unknownOwnerTasks.entries.joinToString("\n\n") { (id, operation) ->
+                    "รหัส: $id\nรายการ: " + if (operation == "delete") "ลบโน้ต" else "บันทึกโน้ต"
+                })
+            },
+            confirmButton = { TextButton(onClick = { showUnknownTasks = false }) { Text("ปิด") } }
+        )
+    }
+
+    if (error != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissError() },
+            title = { Text("ไม่สามารถแก้ไขโน้ต") },
+            text = { Text(error.orEmpty()) },
+            confirmButton = { TextButton(onClick = { viewModel.dismissError() }) { Text("ตกลง") } }
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -45,6 +128,20 @@ fun NotesScreen(
             .background(IosGroupedBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (syncError != null) {
+                Text(syncError.orEmpty(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = StatusDanger)
+            }
+            if (pendingCount > 0) {
+                TextButton(onClick = { showPending = true }) { Text("มีโน้ต $pendingCount รายการรอซิงก์ • ตรวจสอบ", color = TextPrimary) }
+            }
+            if (unverifiedBaseCount > 0) {
+                Text("มีโน้ต $unverifiedBaseCount รายการที่ตรวจเวอร์ชันเดิมไม่ได้ กรุณาติดต่อผู้ดูแล", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = StatusDanger)
+            }
+            if (unknownOwnerCount > 0) {
+                TextButton(onClick = { showUnknownTasks = true }) {
+                    Text("มีรายการเก่า $unknownOwnerCount รายการที่ไม่ทราบเจ้าของ • ดูรายละเอียด", color = StatusDanger)
+                }
+            }
             IosNavigationHeader(
                 title = "สมุดโน้ต",
                 subtitle = "จดบันทึกร้าน แจ้งเตือนกะถัดไป และรายการกันลืม (${notes.size} รายการ)",
@@ -191,7 +288,12 @@ fun NotesScreen(
         AlertDialog(
             onDismissRequest = { noteToDelete = null },
             title = { Text("ยืนยันการลบโน้ต", fontWeight = FontWeight.Bold, color = TextPrimary) },
-            text = { Text("ต้องการลบโน้ต "${note.title}" ใช่หรือไม่?", color = TextSecondary) },
+            text = {
+  Text(
+      text = "ต้องการลบโน้ต '${note.title}' ใช่หรือไม่?",
+      color = TextSecondary
+  )
+},
             confirmButton = {
                 Button(
                     onClick = {

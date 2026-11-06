@@ -86,7 +86,7 @@ class StockRepository(
         val snapshotUuid = UUID.randomUUID().toString()
         val snapshotId = "STK-$snapshotUuid"
         val idempotencyKey = "stock:$deviceId:$snapshotUuid"
-        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val isoNow = com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp()
 
         val items = counts.map { (productId, qty) ->
             StockSnapshotItem(

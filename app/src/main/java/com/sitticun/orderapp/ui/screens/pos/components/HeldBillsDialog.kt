@@ -27,6 +27,9 @@ import com.sitticun.orderapp.ui.theme.*
 @Composable
 fun HeldBillsDialog(
     heldBills: List<HeldBill>,
+    pendingHeldBills: Map<String, Pair<String, Boolean>>,
+    onVerifyBill: (HeldBill) -> Unit,
+    onReviewBill: (HeldBill) -> Unit,
     onResumeBill: (HeldBill) -> Unit,
     onDeleteBill: (HeldBill) -> Unit,
     onDismiss: () -> Unit
@@ -138,6 +141,21 @@ fun HeldBillsDialog(
                                         )
                                     }
 
+                                    pendingHeldBills[bill.id]?.let { pending ->
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = if (pending.second) "รอตรวจสอบผลการซิงก์" else "รอซิงก์เมื่อออนไลน์",
+                                            fontSize = 12.sp,
+                                            color = StatusDanger
+                                        )
+                                        Text(text = "รหัสบิล: ${bill.id}", fontSize = 11.sp, color = TextSecondary)
+                                    }
+                                    if (pendingHeldBills[bill.id]?.second == true) {
+                                        Row {
+                                            TextButton(onClick = { onVerifyBill(bill) }) { Text("ตรวจสอบอีกครั้ง") }
+                                            TextButton(onClick = { onReviewBill(bill) }) { Text("เปรียบเทียบและจัดการ") }
+                                        }
+                                    }
                                     Spacer(modifier = Modifier.height(10.dp))
 
                                     Row(

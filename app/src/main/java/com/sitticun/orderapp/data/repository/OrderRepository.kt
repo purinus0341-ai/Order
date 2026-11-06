@@ -7,6 +7,12 @@ import com.sitticun.orderapp.data.model.*
 import com.sitticun.orderapp.util.DeviceIdProvider
 import com.sitticun.orderapp.util.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +35,12 @@ data class PosDraftState(
     val pointsUsed: Map<String, Int> = emptyMap()
 )
 
+internal fun heldBillsMatch(local: HeldBill, remote: HeldBill): Boolean =
+    remote.id == local.id && remote.customerId == local.customerId &&
+        remote.payload == local.payload && remote.note.orEmpty() == local.note.orEmpty()
+
+data class HeldBillReview(val owner: String, val local: HeldBill, val remote: HeldBill?)
+
 class OrderRepository(
     private val supabaseClient: SupabaseClient,
     private val dbHelper: OrderDatabaseHelper,
@@ -36,16 +48,24 @@ class OrderRepository(
     private val networkMonitor: NetworkMonitor,
     private val deviceIdProvider: DeviceIdProvider
 ) {
+    private val heldSyncMutex = Mutex()
+    private val heldScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true }
     private val _orders = MutableStateFlow<List<OrderSummary>>(emptyList())
     val orders: StateFlow<List<OrderSummary>> = _orders.asStateFlow()
+
+    private val _pendingHeldBills = MutableStateFlow<Map<String, Pair<String, Boolean>>>(emptyMap())
+    val pendingHeldBills = _pendingHeldBills.asStateFlow()
+    private fun refreshPendingHeldBills() { _pendingHeldBills.value = dbHelper.pendingHeldBills() }
 
     private val _heldBills = MutableStateFlow<List<HeldBill>>(emptyList())
     val heldBills: StateFlow<List<HeldBill>> = _heldBills.asStateFlow()
 
     init {
         _heldBills.value = dbHelper.getAllHeldBills()
+        refreshPendingHeldBills()
         _orders.value = dbHelper.getAllOrders()
+        heldScope.launch { networkMonitor.isOnlineFlow.collect { if (it) syncPendingHeldBills() } }
     }
 
     // -------------------------------------------------------------
@@ -71,6 +91,89 @@ class OrderRepository(
     // -------------------------------------------------------------
     // HELD BILLS
     // -------------------------------------------------------------
+    suspend fun syncPendingHeldBills() = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            if (!networkMonitor.isOnline || !preferenceManager.isLoggedIn) return@withLock
+            val userId = preferenceManager.userProfile?.userId ?: return@withLock
+            val bills = dbHelper.getAllHeldBills().associateBy { it.id }
+            for ((id, entry) in dbHelper.pendingHeldBills()) {
+                if (entry.first != userId) continue
+                val bill = bills[id] ?: continue
+                if (!entry.second) {
+                    dbHelper.markHeldAttempted(id)
+                    val saved = supabaseClient.saveHeldBill(bill, 0)
+                    if (saved.isSuccess) {
+                        dbHelper.inTransaction { dbHelper.saveHeldBill(bill.copy(version = saved.getOrThrow())); dbHelper.clearPendingHeldBill(id) }
+                        continue
+                    }
+                }
+                val remote = supabaseClient.getHeldBill(id)
+                val found = remote.getOrNull()
+                if (found != null && heldBillsMatch(bill, found)) {
+                    dbHelper.inTransaction { dbHelper.saveHeldBill(found); dbHelper.clearPendingHeldBill(id) }
+                }
+            }
+            _heldBills.value = dbHelper.getAllHeldBills()
+            refreshPendingHeldBills()
+        }
+    }
+
+    suspend fun verifyPendingHeldBill(id: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            val pending = dbHelper.pendingHeldBills()[id]
+                ?: return@withLock Result.failure(IllegalStateException("บิลนี้ไม่ได้รอซิงก์แล้ว กรุณาเปิดรายการใหม่"))
+            if (!networkMonitor.isOnline) return@withLock Result.failure(IllegalStateException("กรุณาเชื่อมต่ออินเทอร์เน็ตก่อนตรวจสอบ"))
+            if (!preferenceManager.isLoggedIn || pending.first != preferenceManager.userProfile?.userId)
+                return@withLock Result.failure(IllegalStateException("กรุณาเข้าสู่ระบบด้วยบัญชีที่สร้างบิลนี้"))
+            val local = dbHelper.getAllHeldBills().firstOrNull { it.id == id }
+                ?: return@withLock Result.failure(IllegalStateException("ไม่พบบิลในเครื่อง กรุณาติดต่อผู้ดูแล"))
+            val response = supabaseClient.getHeldBill(id)
+            if (response.isFailure) return@withLock Result.failure(response.exceptionOrNull() ?: IllegalStateException("ตรวจสอบบิลไม่สำเร็จ"))
+            val remote = response.getOrNull()
+                ?: return@withLock Result.failure(IllegalStateException("ยังไม่พบบิลบนเซิร์ฟเวอร์ ระบบเก็บบิลในเครื่องไว้ กรุณาติดต่อผู้ดูแลเพื่อตรวจสอบก่อนส่งซ้ำ"))
+            if (!heldBillsMatch(local, remote))
+                return@withLock Result.failure(IllegalStateException("พบบิลบนเซิร์ฟเวอร์แต่ข้อมูลไม่ตรง ระบบเก็บบิลในเครื่องไว้ กรุณาติดต่อผู้ดูแล"))
+            dbHelper.inTransaction { dbHelper.saveHeldBill(remote); dbHelper.clearPendingHeldBill(id) }
+            _heldBills.value = dbHelper.getAllHeldBills()
+            refreshPendingHeldBills()
+            Result.success(true)
+        }
+    }
+
+    suspend fun reviewHeldBill(id: String): HeldBillReview = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            check(networkMonitor.isOnline && preferenceManager.isLoggedIn) { "กรุณาเข้าสู่ระบบและเชื่อมต่ออินเทอร์เน็ต" }
+            val pending = dbHelper.pendingHeldBills()[id] ?: error("บิลนี้ไม่ได้รอซิงก์แล้ว")
+            val owner = preferenceManager.userProfile?.userId
+            check(pending.first == owner) { "กรุณาเข้าสู่ระบบด้วยบัญชีที่สร้างบิลนี้" }
+            val local = dbHelper.getAllHeldBills().firstOrNull { it.id == id } ?: error("ไม่พบบิลในเครื่อง")
+            val remote = supabaseClient.getHeldBill(id).getOrThrow()
+            check(preferenceManager.isLoggedIn && preferenceManager.userProfile?.userId == owner) { "บัญชีเปลี่ยนไป กรุณาลองใหม่" }
+            HeldBillReview(pending.first, local, remote)
+        }
+    }
+
+    suspend fun resolveHeldBill(review: HeldBillReview, keepCopy: Boolean) = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            check(networkMonitor.isOnline && preferenceManager.isLoggedIn && preferenceManager.userProfile?.userId == review.owner) { "กรุณาเข้าสู่ระบบด้วยบัญชีเจ้าของและเชื่อมต่ออินเทอร์เน็ต" }
+            val task = dbHelper.pendingHeldBills()[review.local.id] ?: error("บิลนี้ไม่ได้รอซิงก์แล้ว")
+            check(task.first == review.owner && dbHelper.getAllHeldBills().firstOrNull { it.id == review.local.id } == review.local) { "บิลในเครื่องเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            val remote = supabaseClient.getHeldBill(review.local.id).getOrThrow()
+            check(remote == review.remote && preferenceManager.isLoggedIn && preferenceManager.userProfile?.userId == review.owner) { "ข้อมูลบนคลาวด์หรือบัญชีเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            dbHelper.inTransaction {
+                if (keepCopy) {
+                    val copy = review.local.copy(id = "HELD-" + UUID.randomUUID().toString(), version = 1L)
+                    dbHelper.saveHeldBill(copy)
+                    dbHelper.queueHeldBill(copy.id, review.owner)
+                }
+                if (remote == null) dbHelper.deleteHeldBill(review.local.id) else dbHelper.saveHeldBill(remote)
+                dbHelper.clearPendingHeldBill(review.local.id)
+            }
+            _heldBills.value = dbHelper.getAllHeldBills()
+            refreshPendingHeldBills()
+        }
+    }
+
     suspend fun loadHeldBills(): List<HeldBill> = withContext(Dispatchers.IO) {
         val cached = dbHelper.getAllHeldBills()
         if (cached.isNotEmpty()) {
@@ -78,12 +181,13 @@ class OrderRepository(
         }
 
         if (networkMonitor.isOnline) {
+            syncPendingHeldBills()
             val remote = supabaseClient.getHeldBills()
             if (remote.isSuccess) {
                 val list = remote.getOrThrow()
                 dbHelper.saveHeldBills(list)
-                _heldBills.value = list
-                return@withContext list
+                _heldBills.value = dbHelper.getAllHeldBills()
+                return@withContext _heldBills.value
             }
         }
         _heldBills.value
@@ -104,7 +208,7 @@ class OrderRepository(
             pointUses = pointUses,
             freeItems = freeItems
         )
-        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val isoNow = com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp()
         val heldBill = HeldBill(
             id = billId,
             customerId = customer.id,
@@ -115,6 +219,9 @@ class OrderRepository(
             version = if (expectedVersion > 0) expectedVersion + 1 else 1L
         )
 
+        if (existingBillId != null && existingBillId in dbHelper.pendingHeldBills()) {
+            return@withContext Result.failure(IllegalStateException("บิลพักนี้ยังรอซิงก์ กรุณารอให้ส่งสำเร็จก่อนแก้ไข"))
+        }
         if (existingBillId != null && expectedVersion <= 0L) {
             return@withContext Result.failure(
                 IllegalArgumentException("ไม่พบเวอร์ชันของบิลพัก กรุณาโหลดรายการบิลพักใหม่ก่อนบันทึก")
@@ -137,21 +244,25 @@ class OrderRepository(
             return@withContext Result.success(updatedBill)
         }
 
-        // Offline: preserve the local-first workflow.
-        dbHelper.saveHeldBill(heldBill)
+        if (existingBillId != null) return@withContext Result.failure(IllegalStateException("แก้ไขบิลพักต้องเชื่อมต่ออินเทอร์เน็ต"))
+        val owner = preferenceManager.userProfile?.userId
+        if (!preferenceManager.isLoggedIn || owner.isNullOrBlank()) return@withContext Result.failure(IllegalStateException("กรุณาเข้าสู่ระบบก่อนพักบิล"))
+        dbHelper.inTransaction { dbHelper.saveHeldBill(heldBill); dbHelper.queueHeldBill(heldBill.id, owner) }
+        refreshPendingHeldBills()
         _heldBills.value = dbHelper.getAllHeldBills()
         clearDraft()
         Result.success(heldBill)
     }
 
     suspend fun deleteHeldBill(id: String, expectedVersion: Long): Result<Unit> = withContext(Dispatchers.IO) {
-        dbHelper.deleteHeldBill(id)
-        _heldBills.value = dbHelper.getAllHeldBills()
-
-        if (networkMonitor.isOnline) {
-            return@withContext supabaseClient.deleteHeldBill(id, expectedVersion)
+        if (id in dbHelper.pendingHeldBills()) return@withContext Result.failure(IllegalStateException("บิลพักนี้ยังรอซิงก์ กรุณารอให้ส่งสำเร็จก่อนลบ"))
+        if (!networkMonitor.isOnline) return@withContext Result.failure(IllegalStateException("ลบบิลพักต้องเชื่อมต่ออินเทอร์เน็ต"))
+        val result = supabaseClient.deleteHeldBill(id, expectedVersion)
+        if (result.isSuccess) {
+            dbHelper.deleteHeldBill(id)
+            _heldBills.value = dbHelper.getAllHeldBills()
         }
-        Result.success(Unit)
+        result
     }
 
     // -------------------------------------------------------------
@@ -162,6 +273,9 @@ class OrderRepository(
         cartItems: List<CartItem>,
         heldBillId: String? = null
     ): Result<CloudSaleResult> = withContext(Dispatchers.IO) {
+        if (heldBillId != null && heldBillId in dbHelper.pendingHeldBills()) {
+            return@withContext Result.failure(IllegalStateException("บิลพักนี้ยังรอซิงก์ กรุณารอให้ส่งสำเร็จก่อนชำระเงิน"))
+        }
         val paidItems = cartItems.filter { it.paidQty > 0 }
         val freeItems = cartItems.filter { it.freeQty > 0 }
         val pointUses = cartItems.filter { it.pointsUsed > 0 }
@@ -185,7 +299,7 @@ class OrderRepository(
         val orderId = "ORD-$orderUuid"
         val deviceId = deviceIdProvider.getDeviceId()
         val idempotencyKey = "sale:$deviceId:$orderUuid"
-        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val isoNow = com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp()
 
         val cloudItems = paidItems.map {
             OrderItemInput(
@@ -300,28 +414,20 @@ class OrderRepository(
             )
         }
 
-        dbHelper.saveOrder(localSummary)
-        for (item in paidItems) {
-            dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
-        }
-        for (u in pointUses) {
-            dbHelper.updatePointBalance(customer.id, u.product.id, -u.pointsUsed)
-        }
-        if (heldBillId != null) {
-            dbHelper.deleteHeldBill(heldBillId)
-            _heldBills.value = dbHelper.getAllHeldBills()
-        }
-        _orders.value = dbHelper.getAllOrders()
-        clearDraft()
-
         val payloadJson = json.encodeToString(
             CommitSaleRpcPayload(order = saleOrder, idempotencyKey = idempotencyKey, deviceId = deviceId)
         )
-        dbHelper.insertOutbox(
-            actionType = "commit_sale",
-            idempotencyKey = idempotencyKey,
-            payloadJson = payloadJson
-        )
+        dbHelper.inTransaction {
+            dbHelper.saveOrder(localSummary)
+            for (item in paidItems) {
+                dbHelper.updatePointBalance(customer.id, item.product.id, item.paidQty)
+            }
+            if (heldBillId != null) dbHelper.deleteHeldBill(heldBillId)
+            dbHelper.insertOutbox("commit_sale", idempotencyKey, payloadJson)
+        }
+        if (heldBillId != null) _heldBills.value = dbHelper.getAllHeldBills()
+        _orders.value = dbHelper.getAllOrders()
+        clearDraft()
 
         Result.success(
             CloudSaleResult(
@@ -344,43 +450,19 @@ class OrderRepository(
             return@withContext Result.failure(Exception("บิลนี้ถูกยกเลิกแล้ว"))
         }
 
-        val idempotencyKey = "void:${target.id}"
-        dbHelper.markOrderVoided(orderId)
-        _orders.value = dbHelper.getAllOrders()
-
-        if (networkMonitor.isOnline) {
-            val remoteResult = supabaseClient.voidOrder(orderId, idempotencyKey)
-            if (remoteResult.isSuccess) {
-                val res = remoteResult.getOrThrow()
-                val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
-                    pIdStr.toLongOrNull()?.let { pId ->
-                        PointBalance(customerId = target.customerId, productId = pId, balance = bal)
-                    }
-                }
-                if (balances.isNotEmpty()) {
-                    dbHelper.savePointBalances(target.customerId, balances)
-                }
-                return@withContext Result.success(res)
-            }
+        if (!networkMonitor.isOnline) {
+            return@withContext Result.failure(IllegalStateException("ยกเลิกบิลต้องเชื่อมต่ออินเทอร์เน็ต"))
         }
-
-        // Offline or remote pending: queue in Outbox
-        val payloadJson = json.encodeToString(
-            VoidOrderRpcPayload(orderId = orderId, idempotencyKey = idempotencyKey)
-        )
-        dbHelper.insertOutbox(
-            actionType = "void_order",
-            idempotencyKey = idempotencyKey,
-            payloadJson = payloadJson
-        )
-
-        Result.success(
-            VoidOrderResult(
-                orderId = orderId,
-                status = "voided",
-                idempotentReplay = false
-            )
-        )
+        val remoteResult = supabaseClient.voidOrder(orderId, "void:${target.id}")
+        if (remoteResult.isFailure) return@withContext remoteResult
+        val res = remoteResult.getOrThrow()
+        dbHelper.markOrderVoided(orderId)
+        val balances = res.pointBalances.mapNotNull { (pIdStr, bal) ->
+            pIdStr.toLongOrNull()?.let { pId -> PointBalance(customerId = target.customerId, productId = pId, balance = bal) }
+        }
+        if (balances.isNotEmpty()) dbHelper.savePointBalances(target.customerId, balances)
+        _orders.value = dbHelper.getAllOrders()
+        Result.success(res)
     }
 
     suspend fun loadOrders(forceRefresh: Boolean = false): List<OrderSummary> = withContext(Dispatchers.IO) {

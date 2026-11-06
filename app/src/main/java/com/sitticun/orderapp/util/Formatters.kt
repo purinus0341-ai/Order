@@ -4,12 +4,16 @@ import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
+import java.time.OffsetDateTime
 
 object Formatters {
     private val currencyFormat = DecimalFormat("฿#,##0.00")
     private val integerFormat = DecimalFormat("#,##0")
-    private val thaiDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("th", "TH"))
-    private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+    private fun thaiDateFormat() = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("th", "TH"))
+    private fun isoDateFormat() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
 
     fun formatCurrency(amount: Double): String {
         return currencyFormat.format(amount)
@@ -24,21 +28,21 @@ object Formatters {
     }
 
     fun formatDateTime(timestampMillis: Long): String {
-        return thaiDateFormat.format(Date(timestampMillis))
+        return thaiDateFormat().format(Date(timestampMillis))
     }
 
     fun formatIsoDateTime(isoString: String?): String {
         if (isoString.isNullOrBlank()) return "-"
         return try {
-            val date = isoDateFormat.parse(isoString) ?: return isoString
-            thaiDateFormat.format(date)
+            val date = Date.from(OffsetDateTime.parse(isoString).toInstant())
+            thaiDateFormat().format(date)
         } catch (e: Exception) {
             isoString
         }
     }
 
     fun getCurrentIsoTimestamp(): String {
-        return isoDateFormat.format(Date())
+        return isoDateFormat().format(Date())
     }
 
     fun generateOrderNumber(): String {

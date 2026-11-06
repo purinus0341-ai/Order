@@ -11,5 +11,6 @@ data class NoteModel(
     val content: String,
     @SerialName("is_pinned") val isPinned: Boolean = false,
     @SerialName("created_by") val createdBy: String? = null,
-    @SerialName("updated_at") val updatedAt: String = ""
+    @SerialName("updated_at") val updatedAt: String = "",
+    val revision: Long? = null
 )

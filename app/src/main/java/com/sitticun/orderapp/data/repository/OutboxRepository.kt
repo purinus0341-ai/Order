@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
@@ -25,6 +27,7 @@ class OutboxRepository(
     private val dbHelper: OrderDatabaseHelper,
     private val networkMonitor: NetworkMonitor
 ) {
+    private val syncMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -61,7 +64,7 @@ class OutboxRepository(
         }
     }
 
-    suspend fun syncPendingItems(): Int = withContext(Dispatchers.IO) {
+    suspend fun syncPendingItems(): Int = syncMutex.withLock { withContext(Dispatchers.IO) {
         refreshOutbox()
         if (!networkMonitor.isOnline) return@withContext 0
         if (_isSyncing.value) return@withContext 0
@@ -89,7 +92,7 @@ class OutboxRepository(
         }
 
         successCount
-    }
+    } }
 
     private suspend fun processSingleTask(task: OutboxTask): Result<Unit> {
         return try {

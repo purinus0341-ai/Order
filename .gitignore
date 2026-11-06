@@ -16,3 +16,5 @@ local.properties
 app/build/
 *.apk
 *.aab
+
+supabase/tests/node_modules/

@@ -14,7 +14,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class SupabaseClient(private val preferenceManager: PreferenceManager) {
+class SupabaseClient internal constructor(
+    private val preferenceManager: PreferenceManager,
+    private val configuredBaseUrl: String = BuildConfig.SUPABASE_URL
+) {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -30,7 +33,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
         .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    val baseUrl: String = BuildConfig.SUPABASE_URL.trimEnd('/')
+    val baseUrl: String = configuredBaseUrl.trimEnd('/')
     val anonKey: String = BuildConfig.SUPABASE_ANON_KEY
 
     private fun buildRequest(
@@ -156,14 +159,8 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
 
             val profileResult = fetchUserProfile(userId)
             if (profileResult.isFailure) {
-                val defaultProfile = UserProfile(
-                    userId = userId,
-                    role = "staff",
-                    displayName = request.email.substringBefore('@'),
-                    isActive = true
-                )
-                preferenceManager.userProfile = defaultProfile
-                return@withContext Result.success(defaultProfile)
+                preferenceManager.clearSession()
+                return@withContext Result.failure(profileResult.exceptionOrNull() ?: Exception("ตรวจสอบบัญชีผู้ใช้ไม่สำเร็จ"))
             }
 
             val profile = profileResult.getOrThrow()
@@ -236,7 +233,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
                 put("volume", product.volume)
                 put("price", product.price)
                 put("is_active", product.isActive)
-                put("updated_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).format(java.util.Date()))
+                put("updated_at", com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp())
             }
             val body = payload.toString().toRequestBody(jsonMediaType)
             val response = executeWithRetry("/rest/v1/products?id=eq.${product.id}", method = "PATCH", body = body)
@@ -385,6 +382,16 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun getHeldBill(id: String): Result<HeldBill?> = withContext(Dispatchers.IO) {
+        try {
+            val safeId = java.net.URLEncoder.encode(id, "UTF-8")
+            val response = executeWithRetry("/rest/v1/held_bills?id=eq.$safeId&select=id,customer_id,customer_name_snapshot,note,payload,updated_at,updated_by,version")
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@withContext Result.failure(Exception("ดึงบิลพักล้มเหลว: $body"))
+            Result.success(json.decodeFromString<List<HeldBill>>(body).firstOrNull())
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun saveHeldBill(bill: HeldBill, expectedVersion: Long): Result<Long> = withContext(Dispatchers.IO) {
@@ -629,7 +636,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
     // -------------------------------------------------------------
     suspend fun getNotes(): Result<List<NoteModel>> = withContext(Dispatchers.IO) {
         try {
-            val response = executeWithRetry("/rest/v1/notes?select=id,title,content,is_pinned,created_by,updated_at&order=is_pinned.desc,updated_at.desc")
+            val response = executeWithRetry("/rest/v1/notes?select=id,title,content,is_pinned,created_by,updated_at,revision&order=is_pinned.desc,updated_at.desc")
             val resBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 return@withContext Result.failure(Exception("ดึงข้อมูลโน้ตล้มเหลว: $resBody"))
@@ -639,6 +646,35 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun getNote(id: String): Result<NoteModel?> = withContext(Dispatchers.IO) {
+        try {
+            val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
+            val response = executeWithRetry("/rest/v1/notes?id=eq.$encodedId&select=id,title,content,is_pinned,created_by,updated_at,revision")
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@withContext Result.failure(Exception("ตรวจสอบโน้ตไม่สำเร็จ: $body"))
+            Result.success(json.decodeFromString<List<NoteModel>>(body).firstOrNull())
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun writeNoteIfUnchanged(id: String, operation: String, note: NoteModel?, base: Long): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            require(id.isNotBlank()) { "Note id is required" }
+            require(base >= 0L && operation in setOf("upsert", "delete")) { "Invalid note operation" }
+            require(operation != "delete" || base > 0L) { "Deleting a note requires its server revision" }
+            require(operation != "upsert" || (note != null && note.id == id)) { "Matching note data is required" }
+            val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
+            val endpoint = if (base == 0L) "/rest/v1/notes" else {
+                "/rest/v1/notes?id=eq.$encodedId&revision=eq.$base"
+            }
+            val method = if (operation == "delete") "DELETE" else if (base == 0L) "POST" else "PATCH"
+            val body = note?.let { json.encodeToString(it).toRequestBody(jsonMediaType) }
+            val response = executeWithRetry(endpoint, method = method, body = body, extraHeaders = mapOf("Prefer" to "return=representation"))
+            val payload = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@withContext Result.failure(Exception("ส่งโน้ตไม่สำเร็จ: $payload"))
+            Result.success(json.decodeFromString<JsonArray>(payload).isNotEmpty())
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun upsertNote(note: NoteModel): Result<Unit> = withContext(Dispatchers.IO) {

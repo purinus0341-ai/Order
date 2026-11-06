@@ -2,6 +2,8 @@ package com.sitticun.orderapp.ui.screens.pos
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sitticun.orderapp.OrderApplication
+import com.sitticun.orderapp.data.model.HeldBill
 import com.sitticun.orderapp.ui.components.IosNavigationHeader
 import com.sitticun.orderapp.ui.components.IosSearchBar
 import com.sitticun.orderapp.ui.components.OfflineBanner
@@ -35,6 +38,7 @@ fun PosScreen(
     val products by viewModel.products.collectAsState()
     val customers by viewModel.customers.collectAsState()
     val heldBills by viewModel.heldBills.collectAsState()
+    val pendingHeldBills by viewModel.pendingHeldBills.collectAsState()
 
     val outboxItems by OrderApplication.instance.outboxRepository.outboxItems.collectAsState()
     val isSyncing by OrderApplication.instance.outboxRepository.isSyncing.collectAsState()
@@ -81,10 +85,58 @@ fun PosScreen(
     if (state.showHeldBillsDialog) {
         HeldBillsDialog(
             heldBills = heldBills,
+            pendingHeldBills = pendingHeldBills,
+            onVerifyBill = { viewModel.verifyHeldBill(it) },
+            onReviewBill = { viewModel.reviewHeldBill(it) },
             onResumeBill = { viewModel.resumeHeldBill(it) },
             onDeleteBill = { viewModel.deleteHeldBill(it) },
             onDismiss = { viewModel.toggleHeldBillsDialog(false) }
         )
+    }
+
+    var heldResolution by remember { mutableStateOf<Boolean?>(null) }
+    state.heldReview?.let { review ->
+        if (heldResolution == null) AlertDialog(
+            onDismissRequest = { viewModel.dismissHeldReview() },
+            title = { Text("ตรวจสอบบิลพัก") },
+            text = {
+                fun details(bill: HeldBill): String {
+                    val paid = bill.payload.paidQty.map { (id, qty) ->
+                        val name = products.firstOrNull { it.id.toString() == id }?.name ?: "สินค้า $id"
+                        "$name × $qty"
+                    }
+                    val free = bill.payload.freeItems.map { item ->
+                        val name = products.firstOrNull { it.id == item.productId }?.name ?: "สินค้า ${item.productId}"
+                        "ของแถม $name × ${item.qty}"
+                    }
+                    val points = bill.payload.pointUses.map { item ->
+                        val name = products.firstOrNull { it.id == item.productId }?.name ?: "สินค้า ${item.productId}"
+                        "ใช้แต้ม $name: ${item.points}"
+                    }
+                    return (listOf("ลูกค้า: ${bill.customerName}") + paid + free + points + listOfNotNull(bill.note?.takeIf { it.isNotBlank() }?.let { "หมายเหตุ: $it" })).joinToString("\n")
+                }
+                Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text("รหัสบิล: ${review.local.id}")
+                    Spacer(Modifier.height(12.dp))
+                    Text("ในเครื่อง", fontWeight = FontWeight.Bold)
+                    Text(details(review.local))
+                    Spacer(Modifier.height(12.dp))
+                    Text("บนคลาวด์", fontWeight = FontWeight.Bold)
+                    Text(review.remote?.let { details(it) } ?: "ไม่พบบิล")
+                }
+            },
+            confirmButton = { TextButton(onClick = { heldResolution = true }) { Text("เก็บเป็นบิลพักใหม่") } },
+            dismissButton = { TextButton(onClick = { heldResolution = false }) { Text("ใช้ข้อมูลคลาวด์") } }
+        )
+        heldResolution?.let { keepCopy ->
+            AlertDialog(
+                onDismissRequest = { heldResolution = null },
+                title = { Text("ยืนยันการจัดการบิล") },
+                text = { Text(if (keepCopy) "จะสร้างบิลพักใหม่จากข้อมูลในเครื่อง ตรวจสอบก่อนว่าบิลเดิมยังไม่ได้ชำระ เพื่อป้องกันการขายซ้ำ" else "จะยกเลิกรายการรอส่งในเครื่องและใช้ข้อมูลคลาวด์ หากไม่พบบนคลาวด์ บิลนี้จะถูกลบจากเครื่อง") },
+                confirmButton = { TextButton(onClick = { heldResolution = null; viewModel.resolveHeldBill(keepCopy) }) { Text("ยืนยัน") } },
+                dismissButton = { TextButton(onClick = { heldResolution = null }) { Text("กลับ") } }
+            )
+        }
     }
 
     // Error Alert Dialog
