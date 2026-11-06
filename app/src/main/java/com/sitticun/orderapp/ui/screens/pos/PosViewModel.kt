@@ -7,6 +7,7 @@ import com.sitticun.orderapp.OrderApplication
 import com.sitticun.orderapp.data.model.*
 import com.sitticun.orderapp.data.repository.CustomerRepository
 import com.sitticun.orderapp.data.repository.OrderRepository
+import com.sitticun.orderapp.data.repository.HeldBillReview
 import com.sitticun.orderapp.data.repository.PosDraftState
 import com.sitticun.orderapp.data.repository.ProductRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,8 @@ data class PosUiState(
     val showCustomerPicker: Boolean = false,
     val showPointsEditor: Boolean = false,
     val showFreeItemsEditor: Boolean = false,
-    val showHeldBillsDialog: Boolean = false
+    val showHeldBillsDialog: Boolean = false,
+    val heldReview: HeldBillReview? = null
 ) {
     val subtotal: Double
         get() = cartItems.sumOf { it.paidQty * it.product.price }
@@ -294,6 +296,22 @@ class PosViewModel(
         viewModelScope.launch {
             val result = orderRepository.verifyPendingHeldBill(bill.id)
             if (result.isFailure) _uiState.value = _uiState.value.copy(errorMessage = result.exceptionOrNull()?.message ?: "ตรวจสอบบิลไม่สำเร็จ")
+        }
+    }
+
+    fun reviewHeldBill(bill: HeldBill) {
+        viewModelScope.launch {
+            try { _uiState.value = _uiState.value.copy(showHeldBillsDialog = false, heldReview = orderRepository.reviewHeldBill(bill.id)) }
+            catch (e: Exception) { _uiState.value = _uiState.value.copy(errorMessage = e.message ?: "ตรวจสอบบิลไม่สำเร็จ") }
+        }
+    }
+
+    fun dismissHeldReview() { _uiState.value = _uiState.value.copy(heldReview = null) }
+    fun resolveHeldBill(keepCopy: Boolean) {
+        val review = _uiState.value.heldReview ?: return
+        viewModelScope.launch {
+            try { orderRepository.resolveHeldBill(review, keepCopy); _uiState.value = _uiState.value.copy(heldReview = null) }
+            catch (e: Exception) { _uiState.value = _uiState.value.copy(errorMessage = e.message ?: "จัดการบิลไม่สำเร็จ") }
         }
     }
 

@@ -39,6 +39,8 @@ internal fun heldBillsMatch(local: HeldBill, remote: HeldBill): Boolean =
     remote.id == local.id && remote.customerId == local.customerId &&
         remote.payload == local.payload && remote.note.orEmpty() == local.note.orEmpty()
 
+data class HeldBillReview(val owner: String, val local: HeldBill, val remote: HeldBill?)
+
 class OrderRepository(
     private val supabaseClient: SupabaseClient,
     private val dbHelper: OrderDatabaseHelper,
@@ -135,6 +137,40 @@ class OrderRepository(
             _heldBills.value = dbHelper.getAllHeldBills()
             refreshPendingHeldBills()
             Result.success(true)
+        }
+    }
+
+    suspend fun reviewHeldBill(id: String): HeldBillReview = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            check(networkMonitor.isOnline && preferenceManager.isLoggedIn) { "กรุณาเข้าสู่ระบบและเชื่อมต่ออินเทอร์เน็ต" }
+            val pending = dbHelper.pendingHeldBills()[id] ?: error("บิลนี้ไม่ได้รอซิงก์แล้ว")
+            val owner = preferenceManager.userProfile?.userId
+            check(pending.first == owner) { "กรุณาเข้าสู่ระบบด้วยบัญชีที่สร้างบิลนี้" }
+            val local = dbHelper.getAllHeldBills().firstOrNull { it.id == id } ?: error("ไม่พบบิลในเครื่อง")
+            val remote = supabaseClient.getHeldBill(id).getOrThrow()
+            check(preferenceManager.isLoggedIn && preferenceManager.userProfile?.userId == owner) { "บัญชีเปลี่ยนไป กรุณาลองใหม่" }
+            HeldBillReview(pending.first, local, remote)
+        }
+    }
+
+    suspend fun resolveHeldBill(review: HeldBillReview, keepCopy: Boolean) = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            check(networkMonitor.isOnline && preferenceManager.isLoggedIn && preferenceManager.userProfile?.userId == review.owner) { "กรุณาเข้าสู่ระบบด้วยบัญชีเจ้าของและเชื่อมต่ออินเทอร์เน็ต" }
+            val task = dbHelper.pendingHeldBills()[review.local.id] ?: error("บิลนี้ไม่ได้รอซิงก์แล้ว")
+            check(task.first == review.owner && dbHelper.getAllHeldBills().firstOrNull { it.id == review.local.id } == review.local) { "บิลในเครื่องเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            val remote = supabaseClient.getHeldBill(review.local.id).getOrThrow()
+            check(remote == review.remote && preferenceManager.isLoggedIn && preferenceManager.userProfile?.userId == review.owner) { "ข้อมูลบนคลาวด์หรือบัญชีเปลี่ยนไป กรุณาตรวจสอบใหม่" }
+            dbHelper.inTransaction {
+                if (keepCopy) {
+                    val copy = review.local.copy(id = "HELD-" + UUID.randomUUID().toString(), version = 1L)
+                    dbHelper.saveHeldBill(copy)
+                    dbHelper.queueHeldBill(copy.id, review.owner)
+                }
+                if (remote == null) dbHelper.deleteHeldBill(review.local.id) else dbHelper.saveHeldBill(remote)
+                dbHelper.clearPendingHeldBill(review.local.id)
+            }
+            _heldBills.value = dbHelper.getAllHeldBills()
+            refreshPendingHeldBills()
         }
     }
 

@@ -119,4 +119,16 @@ class OrderDatabaseHelperTest {
         assertEquals("B", remaining["pending"]?.title)
         assertTrue(remaining.containsKey("unconfirmed"))
     }
+    @Test fun heldBillRecoveryPreservesCopyAndClearsOriginalQueueTogether() {
+        helper.inTransaction { helper.saveHeldBill(bill("original", 3)); helper.queueHeldBill("original", "user") }
+        helper.inTransaction {
+            helper.saveHeldBill(bill("copy", 3))
+            helper.queueHeldBill("copy", "user")
+            helper.deleteHeldBill("original")
+            helper.clearPendingHeldBill("original")
+        }
+        assertEquals(listOf("copy"), helper.getAllHeldBills().map { it.id })
+        assertEquals(setOf("copy"), helper.pendingHeldBills().keys)
+        assertEquals(3, helper.getAllHeldBills().single().payload.paidQty["1"] ?: -1)
+    }
 }

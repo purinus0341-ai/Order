@@ -29,6 +29,7 @@ fun HeldBillsDialog(
     heldBills: List<HeldBill>,
     pendingHeldBills: Map<String, Pair<String, Boolean>>,
     onVerifyBill: (HeldBill) -> Unit,
+    onReviewBill: (HeldBill) -> Unit,
     onResumeBill: (HeldBill) -> Unit,
     onDeleteBill: (HeldBill) -> Unit,
     onDismiss: () -> Unit
@@ -150,7 +151,10 @@ fun HeldBillsDialog(
                                         Text(text = "รหัสบิล: ${bill.id}", fontSize = 11.sp, color = TextSecondary)
                                     }
                                     if (pendingHeldBills[bill.id]?.second == true) {
-                                        TextButton(onClick = { onVerifyBill(bill) }) { Text("ตรวจสอบบิลอีกครั้ง") }
+                                        Row {
+                                            TextButton(onClick = { onVerifyBill(bill) }) { Text("ตรวจสอบอีกครั้ง") }
+                                            TextButton(onClick = { onReviewBill(bill) }) { Text("เปรียบเทียบและจัดการ") }
+                                        }
                                     }
                                     Spacer(modifier = Modifier.height(10.dp))
 
