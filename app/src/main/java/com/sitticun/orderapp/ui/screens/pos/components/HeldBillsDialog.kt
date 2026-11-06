@@ -147,6 +147,7 @@ fun HeldBillsDialog(
                                             fontSize = 12.sp,
                                             color = StatusDanger
                                         )
+                                        Text(text = "รหัสบิล: ${bill.id}", fontSize = 11.sp, color = TextSecondary)
                                     }
                                     if (pendingHeldBills[bill.id]?.second == true) {
                                         TextButton(onClick = { onVerifyBill(bill) }) { Text("ตรวจสอบบิลอีกครั้ง") }

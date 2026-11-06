@@ -172,7 +172,7 @@ class OrderRepository(
             pointUses = pointUses,
             freeItems = freeItems
         )
-        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val isoNow = com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp()
         val heldBill = HeldBill(
             id = billId,
             customerId = customer.id,
@@ -263,7 +263,7 @@ class OrderRepository(
         val orderId = "ORD-$orderUuid"
         val deviceId = deviceIdProvider.getDeviceId()
         val idempotencyKey = "sale:$deviceId:$orderUuid"
-        val isoNow = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())
+        val isoNow = com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp()
 
         val cloudItems = paidItems.map {
             OrderItemInput(

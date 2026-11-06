@@ -29,10 +29,13 @@ class NoteRepository(
     val pendingCount = _pendingCount.asStateFlow()
     private val _unknownOwnerCount = MutableStateFlow(dbHelper.pendingNotes().count { it.value.second == null })
     val unknownOwnerCount = _unknownOwnerCount.asStateFlow()
+    private val _unknownOwnerTasks = MutableStateFlow(dbHelper.pendingNotes().filterValues { it.second == null }.mapValues { it.value.first })
+    val unknownOwnerTasks = _unknownOwnerTasks.asStateFlow()
     private fun refreshPendingCount() {
         val pending = dbHelper.pendingNotes()
         _pendingCount.value = pending.size
         _unknownOwnerCount.value = pending.count { it.value.second == null }
+        _unknownOwnerTasks.value = pending.filterValues { it.second == null }.mapValues { it.value.first }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

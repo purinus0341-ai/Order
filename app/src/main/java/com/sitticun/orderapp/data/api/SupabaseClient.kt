@@ -230,7 +230,7 @@ class SupabaseClient(private val preferenceManager: PreferenceManager) {
                 put("volume", product.volume)
                 put("price", product.price)
                 put("is_active", product.isActive)
-                put("updated_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).format(java.util.Date()))
+                put("updated_at", com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp())
             }
             val body = payload.toString().toRequestBody(jsonMediaType)
             val response = executeWithRetry("/rest/v1/products?id=eq.${product.id}", method = "PATCH", body = body)

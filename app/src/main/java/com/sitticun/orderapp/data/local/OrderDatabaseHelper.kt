@@ -972,7 +972,7 @@ class OrderDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
         try {
             val cv = ContentValues().apply {
                 put("id", session.id)
-                put("created_at", session.createdAt ?: java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).format(java.util.Date()))
+                put("created_at", session.createdAt ?: com.sitticun.orderapp.util.Formatters.getCurrentIsoTimestamp())
                 put("created_by", session.createdBy)
                 put("source_device_id", session.sourceDeviceId)
                 put("image_path", session.imagePath)

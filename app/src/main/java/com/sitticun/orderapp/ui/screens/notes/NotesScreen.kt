@@ -36,11 +36,26 @@ fun NotesScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pendingCount by viewModel.pendingCount.collectAsState()
     val unknownOwnerCount by viewModel.unknownOwnerCount.collectAsState()
+    val unknownOwnerTasks by viewModel.unknownOwnerTasks.collectAsState()
+    var showUnknownTasks by remember { mutableStateOf(false) }
     val error by viewModel.error.collectAsState()
 
     var showEditorDialog by remember { mutableStateOf(false) }
     var editingNote by remember { mutableStateOf<NoteModel?>(null) }
     var noteToDelete by remember { mutableStateOf<NoteModel?>(null) }
+
+    if (showUnknownTasks) {
+        AlertDialog(
+            onDismissRequest = { showUnknownTasks = false },
+            title = { Text("รายการเก่าที่รอตรวจเจ้าของ") },
+            text = {
+                Text(unknownOwnerTasks.entries.joinToString("\n\n") { (id, operation) ->
+                    "รหัส: $id\nรายการ: " + if (operation == "delete") "ลบโน้ต" else "บันทึกโน้ต"
+                })
+            },
+            confirmButton = { TextButton(onClick = { showUnknownTasks = false }) { Text("ปิด") } }
+        )
+    }
 
     if (error != null) {
         AlertDialog(
@@ -65,11 +80,9 @@ fun NotesScreen(
                 )
             }
             if (unknownOwnerCount > 0) {
-                Text(
-                    text = "มีรายการเก่า $unknownOwnerCount รายการที่ไม่ทราบเจ้าของ กรุณาติดต่อผู้ดูแล",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = StatusDanger
-                )
+                TextButton(onClick = { showUnknownTasks = true }) {
+                    Text("มีรายการเก่า $unknownOwnerCount รายการที่ไม่ทราบเจ้าของ • ดูรายละเอียด", color = StatusDanger)
+                }
             }
             IosNavigationHeader(
                 title = "สมุดโน้ต",
