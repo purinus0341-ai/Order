@@ -19,6 +19,7 @@ class NotesViewModel(
 ) : ViewModel() {
 
     val pendingCount = repository.pendingCount
+    val unknownOwnerCount = repository.unknownOwnerCount
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()

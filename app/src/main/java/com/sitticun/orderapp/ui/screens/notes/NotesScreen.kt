@@ -35,6 +35,7 @@ fun NotesScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pendingCount by viewModel.pendingCount.collectAsState()
+    val unknownOwnerCount by viewModel.unknownOwnerCount.collectAsState()
     val error by viewModel.error.collectAsState()
 
     var showEditorDialog by remember { mutableStateOf(false) }
@@ -61,6 +62,13 @@ fun NotesScreen(
                     text = "มีโน้ต $pendingCount รายการรอซิงก์",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     color = TextPrimary
+                )
+            }
+            if (unknownOwnerCount > 0) {
+                Text(
+                    text = "มีรายการเก่า $unknownOwnerCount รายการที่ไม่ทราบเจ้าของ กรุณาติดต่อผู้ดูแล",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = StatusDanger
                 )
             }
             IosNavigationHeader(

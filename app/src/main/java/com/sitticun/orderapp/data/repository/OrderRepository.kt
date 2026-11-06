@@ -35,6 +35,10 @@ data class PosDraftState(
     val pointsUsed: Map<String, Int> = emptyMap()
 )
 
+internal fun heldBillsMatch(local: HeldBill, remote: HeldBill): Boolean =
+    remote.id == local.id && remote.customerId == local.customerId &&
+        remote.payload == local.payload && remote.note.orEmpty() == local.note.orEmpty()
+
 class OrderRepository(
     private val supabaseClient: SupabaseClient,
     private val dbHelper: OrderDatabaseHelper,
@@ -103,12 +107,34 @@ class OrderRepository(
                 }
                 val remote = supabaseClient.getHeldBill(id)
                 val found = remote.getOrNull()
-                if (found != null && found.customerId == bill.customerId && found.payload == bill.payload && found.note.orEmpty() == bill.note.orEmpty()) {
+                if (found != null && heldBillsMatch(bill, found)) {
                     dbHelper.inTransaction { dbHelper.saveHeldBill(found); dbHelper.clearPendingHeldBill(id) }
                 }
             }
             _heldBills.value = dbHelper.getAllHeldBills()
             refreshPendingHeldBills()
+        }
+    }
+
+    suspend fun verifyPendingHeldBill(id: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        heldSyncMutex.withLock {
+            val pending = dbHelper.pendingHeldBills()[id]
+                ?: return@withLock Result.failure(IllegalStateException("บิลนี้ไม่ได้รอซิงก์แล้ว กรุณาเปิดรายการใหม่"))
+            if (!networkMonitor.isOnline) return@withLock Result.failure(IllegalStateException("กรุณาเชื่อมต่ออินเทอร์เน็ตก่อนตรวจสอบ"))
+            if (!preferenceManager.isLoggedIn || pending.first != preferenceManager.userProfile?.userId)
+                return@withLock Result.failure(IllegalStateException("กรุณาเข้าสู่ระบบด้วยบัญชีที่สร้างบิลนี้"))
+            val local = dbHelper.getAllHeldBills().firstOrNull { it.id == id }
+                ?: return@withLock Result.failure(IllegalStateException("ไม่พบบิลในเครื่อง กรุณาติดต่อผู้ดูแล"))
+            val response = supabaseClient.getHeldBill(id)
+            if (response.isFailure) return@withLock Result.failure(response.exceptionOrNull() ?: IllegalStateException("ตรวจสอบบิลไม่สำเร็จ"))
+            val remote = response.getOrNull()
+                ?: return@withLock Result.failure(IllegalStateException("ยังไม่พบบิลบนเซิร์ฟเวอร์ ระบบเก็บบิลในเครื่องไว้ กรุณาติดต่อผู้ดูแลเพื่อตรวจสอบก่อนส่งซ้ำ"))
+            if (!heldBillsMatch(local, remote))
+                return@withLock Result.failure(IllegalStateException("พบบิลบนเซิร์ฟเวอร์แต่ข้อมูลไม่ตรง ระบบเก็บบิลในเครื่องไว้ กรุณาติดต่อผู้ดูแล"))
+            dbHelper.inTransaction { dbHelper.saveHeldBill(remote); dbHelper.clearPendingHeldBill(id) }
+            _heldBills.value = dbHelper.getAllHeldBills()
+            refreshPendingHeldBills()
+            Result.success(true)
         }
     }
 

@@ -27,7 +27,13 @@ class NoteRepository(
     private val mutex = Mutex()
     private val _pendingCount = MutableStateFlow(dbHelper.pendingNotes().size)
     val pendingCount = _pendingCount.asStateFlow()
-    private fun refreshPendingCount() { _pendingCount.value = dbHelper.pendingNotes().size }
+    private val _unknownOwnerCount = MutableStateFlow(dbHelper.pendingNotes().count { it.value.second == null })
+    val unknownOwnerCount = _unknownOwnerCount.asStateFlow()
+    private fun refreshPendingCount() {
+        val pending = dbHelper.pendingNotes()
+        _pendingCount.value = pending.size
+        _unknownOwnerCount.value = pending.count { it.value.second == null }
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {

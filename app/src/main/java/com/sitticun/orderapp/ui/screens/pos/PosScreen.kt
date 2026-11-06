@@ -83,6 +83,7 @@ fun PosScreen(
         HeldBillsDialog(
             heldBills = heldBills,
             pendingHeldBills = pendingHeldBills,
+            onVerifyBill = { viewModel.verifyHeldBill(it) },
             onResumeBill = { viewModel.resumeHeldBill(it) },
             onDeleteBill = { viewModel.deleteHeldBill(it) },
             onDismiss = { viewModel.toggleHeldBillsDialog(false) }

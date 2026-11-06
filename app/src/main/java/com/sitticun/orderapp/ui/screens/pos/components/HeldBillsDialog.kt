@@ -28,6 +28,7 @@ import com.sitticun.orderapp.ui.theme.*
 fun HeldBillsDialog(
     heldBills: List<HeldBill>,
     pendingHeldBills: Map<String, Pair<String, Boolean>>,
+    onVerifyBill: (HeldBill) -> Unit,
     onResumeBill: (HeldBill) -> Unit,
     onDeleteBill: (HeldBill) -> Unit,
     onDismiss: () -> Unit
@@ -146,6 +147,9 @@ fun HeldBillsDialog(
                                             fontSize = 12.sp,
                                             color = StatusDanger
                                         )
+                                    }
+                                    if (pendingHeldBills[bill.id]?.second == true) {
+                                        TextButton(onClick = { onVerifyBill(bill) }) { Text("ตรวจสอบบิลอีกครั้ง") }
                                     }
                                     Spacer(modifier = Modifier.height(10.dp))
 

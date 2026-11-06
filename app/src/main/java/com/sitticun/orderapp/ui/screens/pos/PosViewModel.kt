@@ -290,6 +290,13 @@ class PosViewModel(
         }
     }
 
+    fun verifyHeldBill(bill: HeldBill) {
+        viewModelScope.launch {
+            val result = orderRepository.verifyPendingHeldBill(bill.id)
+            if (result.isFailure) _uiState.value = _uiState.value.copy(errorMessage = result.exceptionOrNull()?.message ?: "ตรวจสอบบิลไม่สำเร็จ")
+        }
+    }
+
     fun deleteHeldBill(bill: HeldBill) {
         viewModelScope.launch {
             val result = orderRepository.deleteHeldBill(bill.id, bill.version)
