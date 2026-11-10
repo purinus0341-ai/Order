@@ -21,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sitticun.orderapp.ui.components.IosIconBox
 import com.sitticun.orderapp.ui.components.IosNavigationHeader
 import com.sitticun.orderapp.ui.theme.*
+import com.sitticun.orderapp.util.Formatters
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +30,8 @@ fun StockScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snapshots by viewModel.snapshots.collectAsState()
+    val historyProducts by viewModel.historyProducts.collectAsState()
+    val productNames = remember(historyProducts) { historyProducts.associate { it.id to it.name } }
 
     if (state.message != null) {
         AlertDialog(
@@ -309,9 +312,9 @@ fun StockScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = snap.id, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
+                                Text(text = "รอบการนับ", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
                                 Text(
-                                    text = snap.capturedAt.take(16).replace('T', ' '),
+                                    text = Formatters.formatIsoDateTime(snap.capturedAt),
                                     fontSize = 11.sp,
                                     color = TextMuted
                                 )
@@ -321,18 +324,25 @@ fun StockScreen(
                                 Text(text = "โน้ต: ${snap.note}", fontSize = 12.sp, color = TextSecondary)
                             }
                             Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 for (item in snap.items) {
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = IosGroupedBackground,
-                                        modifier = Modifier.weight(1f)
+                                        color = SurfaceVariantColor,
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(text = "สินค้า #${item.productId}", fontSize = 10.sp, color = TextMuted)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = productNames[item.productId] ?: "สินค้า #${item.productId}",
+                                                modifier = Modifier.weight(1f),
+                                                fontSize = 13.sp,
+                                                color = TextSecondary
+                                            )
+                                            Spacer(Modifier.width(12.dp))
                                             Text(text = "${item.qty} ชิ้น", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                                         }
                                     }
