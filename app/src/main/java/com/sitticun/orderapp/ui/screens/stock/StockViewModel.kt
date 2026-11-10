@@ -35,6 +35,7 @@ class StockViewModel(
     val uiState: StateFlow<StockUiState> = _uiState.asStateFlow()
 
     val snapshots = stockRepository.snapshots
+    val historyProducts = productRepository.adminProducts
 
     init {
         loadData()
@@ -43,6 +44,7 @@ class StockViewModel(
     fun loadData(forceRefresh: Boolean = true) {
         viewModelScope.launch {
             productRepository.loadProducts(forceRefresh = forceRefresh)
+            productRepository.loadProductsAdmin(forceRefresh = false)
             orderRepository.loadOrders(forceRefresh = forceRefresh)
             stockRepository.loadSnapshots(forceRefresh = forceRefresh)
             refreshComparisons()
